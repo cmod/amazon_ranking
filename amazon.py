@@ -157,6 +157,9 @@ def save_book_data_json(data):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     filename = "data/amazon_history.json"
     
+    # Ensure data directory exists
+    os.makedirs("data", exist_ok=True)
+    
     # Create entry for this data collection
     entry = {
         'timestamp': now,
@@ -184,6 +187,9 @@ def save_book_data_json(data):
 def save_book_data(data):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     filename = "data/amazon_detailed_history.csv"
+    
+    # Ensure data directory exists
+    os.makedirs("data", exist_ok=True)
     
     # Check if file exists and is empty to write header
     write_header = not os.path.exists(filename) or os.path.getsize(filename) == 0
@@ -250,6 +256,10 @@ def generate_html_report(output_dir="."):
 
 def save_ranking(rank):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Ensure data directory exists
+    os.makedirs("data", exist_ok=True)
+    
     with open("data/amazon_rank_history.csv", mode="a") as file:
         writer = csv.writer(file)
         writer.writerow([now, rank])

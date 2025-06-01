@@ -57,7 +57,7 @@ amazon_ranking/
 # Install dependencies
 pip install -r requirements.txt
 
-# Run scraper
+# Run scraper (creates data/ directory automatically)
 python amazon.py
 
 # Serve dashboard (optional)
