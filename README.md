@@ -45,8 +45,7 @@ amazon_ranking/
 ├── requirements.txt             # Python dependencies
 ├── data/                        # Data storage directory
 │   ├── amazon_history.json     # JSON data for dashboard
-│   ├── amazon_detailed_history.csv  # Detailed CSV format
-│   └── amazon_rank_history.csv # Legacy CSV format
+│   └── amazon_detailed_history.csv  # Detailed CSV format
 └── CLAUDE.md                   # Development documentation
 ```
 
@@ -100,7 +99,6 @@ crontab -e
 - **`data/amazon_history.json`**: Structured data for dashboard
 - **`index.html`**: Interactive dashboard with Chart.js visualizations
 - **`data/amazon_detailed_history.csv`**: CSV format for spreadsheet analysis
-- **`data/amazon_rank_history.csv`**: Legacy format for backward compatibility
 
 ## Customization
 

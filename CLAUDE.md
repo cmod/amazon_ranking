@@ -15,7 +15,6 @@ This is a Python script for tracking Amazon book sales ranking and review metric
   - `save_book_data_json()`: Saves structured data to JSON format for dashboard
   - `save_book_data()`: Appends detailed timestamp, review count, and ranking data to CSV
   - `generate_html_report()`: Creates interactive HTML dashboard with Chart.js graphs
-  - `save_ranking()`: Legacy function for backward compatibility
   - `main()`: Orchestrates data fetch, save in multiple formats, and dashboard generation
 
 - **data/amazon_history.json**: Primary JSON data store with structured entries for dashboard
@@ -24,7 +23,6 @@ This is a Python script for tracking Amazon book sales ranking and review metric
 - **requirements.txt**: Python dependencies for easy installation
 - **README.md**: Setup and deployment documentation
 - **data/amazon_detailed_history.csv**: CSV format with columns: timestamp, review_count, category, rank
-- **data/amazon_rank_history.csv**: Legacy format maintained for backward compatibility
 
 ## Development Commands
 
@@ -84,7 +82,6 @@ Open `index.html` in any web browser to view the dashboard.
 - **dashboard_template.html**: Reusable HTML template with Chart.js and {{DATA_PLACEHOLDER}}
 - **index.html**: Self-contained HTML dashboard with embedded data
 - **data/amazon_detailed_history.csv**: CSV format for spreadsheet analysis
-- **data/amazon_rank_history.csv**: Legacy CSV format for backward compatibility
 
 ## Template System
 

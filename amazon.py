@@ -254,15 +254,6 @@ def generate_html_report(output_dir="."):
     
     print(f"HTML dashboard generated: {output_file}")
 
-def save_ranking(rank):
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    # Ensure data directory exists
-    os.makedirs("data", exist_ok=True)
-    
-    with open("data/amazon_rank_history.csv", mode="a") as file:
-        writer = csv.writer(file)
-        writer.writerow([now, rank])
 
 def main():
     # Parse command line arguments
@@ -296,11 +287,6 @@ def main():
         
         # Generate HTML dashboard in specified directory
         generate_html_report(args.output_dir)
-        
-        # Also maintain backward compatibility with old format
-        if data.get('rankings'):
-            primary_rank = f"#{data['rankings'][0]['rank']} in {data['rankings'][0]['category']}"
-            save_ranking(primary_rank)
     else:
         print("Failed to fetch book data")
 
