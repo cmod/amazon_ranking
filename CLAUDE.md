@@ -21,6 +21,8 @@ This is a Python script for tracking Amazon book sales ranking and review metric
 - **data/amazon_history.json**: Primary JSON data store with structured entries for dashboard
 - **dashboard_template.html**: HTML template file with Chart.js integration and placeholder for data
 - **index.html**: Generated interactive HTML dashboard with embedded data
+- **requirements.txt**: Python dependencies for easy installation
+- **README.md**: Setup and deployment documentation
 - **data/amazon_detailed_history.csv**: CSV format with columns: timestamp, review_count, category, rank
 - **data/amazon_rank_history.csv**: Legacy format maintained for backward compatibility
 
@@ -28,11 +30,11 @@ This is a Python script for tracking Amazon book sales ranking and review metric
 
 ### Environment Setup
 ```bash
-# Activate virtual environment
-source venv/bin/activate
+# Install dependencies
+pip install -r requirements.txt
 
-# Install dependencies (if needed)
-pip install requests beautifulsoup4
+# Or activate virtual environment
+source venv/bin/activate
 ```
 
 ### Running the Script

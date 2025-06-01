@@ -5,6 +5,7 @@ import csv
 import re
 import os
 import json
+import argparse
 
 # URL of your book's Amazon page
 URL = "https://www.amazon.com/dp/0593732545"
@@ -210,7 +211,7 @@ def save_book_data(data):
             # If no rankings found, still record review count
             writer.writerow([now, review_count, 'N/A', 'N/A'])
 
-def generate_html_report():
+def generate_html_report(output_dir="."):
     """Generate HTML file with interactive charts showing ranking history"""
     
     # Load JSON data
@@ -237,11 +238,15 @@ def generate_html_report():
         json.dumps(history_data, indent=2)
     )
     
-    # Write HTML file
-    with open("index.html", "w") as file:
+    # Ensure output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Write HTML file to specified directory
+    output_file = os.path.join(output_dir, "index.html")
+    with open(output_file, "w") as file:
         file.write(html_content)
     
-    print("HTML dashboard generated: index.html")
+    print(f"HTML dashboard generated: {output_file}")
 
 def save_ranking(rank):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -250,6 +255,14 @@ def save_ranking(rank):
         writer.writerow([now, rank])
 
 def main():
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Amazon Book Ranking Tracker')
+    parser.add_argument('--output-dir', '-o', 
+                       default='.', 
+                       help='Output directory for index.html (default: current directory)')
+    
+    args = parser.parse_args()
+    
     print("Fetching Amazon book data...")
     data = get_book_data()
     
@@ -271,8 +284,8 @@ def main():
         save_book_data(data)
         print(f"Data saved to data/amazon_detailed_history.csv")
         
-        # Generate HTML dashboard
-        generate_html_report()
+        # Generate HTML dashboard in specified directory
+        generate_html_report(args.output_dir)
         
         # Also maintain backward compatibility with old format
         if data.get('rankings'):
