@@ -87,11 +87,24 @@
         // Process data for charts
         function processData() {
             const entries = historyData.entries || [];
-            const timestamps = entries.map(e => new Date(e.timestamp).toLocaleDateString());
             const reviewCounts = entries.map(e => parseInt(e.review_count) || 0);
             
             // Create full datetime objects for tooltips
             const fullTimestamps = entries.map(e => new Date(e.timestamp));
+            
+            // Create labels that only show date on first occurrence of each day
+            const timestamps = [];
+            let lastDate = null;
+            
+            fullTimestamps.forEach(date => {
+                const currentDate = date.toLocaleDateString();
+                if (currentDate !== lastDate) {
+                    timestamps.push(currentDate);
+                    lastDate = currentDate;
+                } else {
+                    timestamps.push(''); // Empty string for subsequent entries on same day
+                }
+            });
             
             // Get all unique categories
             const categories = new Set();
