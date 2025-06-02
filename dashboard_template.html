@@ -96,13 +96,15 @@
             const timestamps = [];
             let lastDate = null;
             
-            fullTimestamps.forEach(date => {
+            fullTimestamps.forEach((date, i) => {
                 const currentDate = date.toLocaleDateString();
                 if (currentDate !== lastDate) {
                     timestamps.push(currentDate);
                     lastDate = currentDate;
+                    console.log(`Entry ${i}: Showing date ${currentDate}`);
                 } else {
                     timestamps.push(''); // Empty string for subsequent entries on same day
+                    console.log(`Entry ${i}: Blank (same day as ${currentDate})`);
                 }
             });
             
