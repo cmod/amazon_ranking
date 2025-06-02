@@ -90,6 +90,9 @@
             const timestamps = entries.map(e => new Date(e.timestamp).toLocaleDateString());
             const reviewCounts = entries.map(e => parseInt(e.review_count) || 0);
             
+            // Create full datetime objects for tooltips
+            const fullTimestamps = entries.map(e => new Date(e.timestamp));
+            
             // Get all unique categories
             const categories = new Set();
             entries.forEach(entry => {
@@ -114,7 +117,7 @@
                 };
             });
             
-            return { timestamps, reviewCounts, rankingDatasets, entries };
+            return { timestamps, reviewCounts, rankingDatasets, entries, fullTimestamps };
         }
         
         function getCategoryColor(index) {
@@ -122,7 +125,18 @@
             return colors[index % colors.length];
         }
         
-        function createCategoryCharts(timestamps, rankingDatasets) {
+        function formatDateTime(date) {
+            const options = {
+                month: 'short',
+                day: 'numeric',
+                hour: 'numeric',
+                minute: '2-digit',
+                hour12: true
+            };
+            return date.toLocaleString('en-US', options);
+        }
+        
+        function createCategoryCharts(timestamps, rankingDatasets, fullTimestamps) {
             const chartsContainer = document.getElementById('categoryCharts');
             chartsContainer.innerHTML = ''; // Clear existing charts
             
@@ -185,6 +199,10 @@
                             },
                             tooltip: {
                                 callbacks: {
+                                    title: function(context) {
+                                        const index = context[0].dataIndex;
+                                        return formatDateTime(fullTimestamps[index]);
+                                    },
                                     label: function(context) {
                                         return `Rank: #${context.parsed.y}`;
                                     }
@@ -198,7 +216,7 @@
         
         // Create charts
         function createCharts() {
-            const { timestamps, reviewCounts, rankingDatasets, entries } = processData();
+            const { timestamps, reviewCounts, rankingDatasets, entries, fullTimestamps } = processData();
             
             // Review Chart
             new Chart(document.getElementById('reviewChart'), {
@@ -225,12 +243,25 @@
                                 text: 'Number of Reviews'
                             }
                         }
+                    },
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                title: function(context) {
+                                    const index = context[0].dataIndex;
+                                    return formatDateTime(fullTimestamps[index]);
+                                },
+                                label: function(context) {
+                                    return `Reviews: ${context.parsed.y}`;
+                                }
+                            }
+                        }
                     }
                 }
             });
             
             // Create individual charts for each category
-            createCategoryCharts(timestamps, rankingDatasets);
+            createCategoryCharts(timestamps, rankingDatasets, fullTimestamps);
             
             // Update stats
             updateStats(entries);
