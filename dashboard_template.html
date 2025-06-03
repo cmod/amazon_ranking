@@ -106,15 +106,60 @@
         // Embedded data - will be replaced by Python
         const historyData = {{DATA_PLACEHOLDER}};
         
+        // Function to aggregate data by day with sampling when needed
+        function aggregateDataByDay(entries) {
+            const dailyGroups = {};
+            
+            // Group entries by date
+            entries.forEach((entry, index) => {
+                const date = new Date(entry.timestamp);
+                const dateKey = date.toDateString();
+                
+                if (!dailyGroups[dateKey]) {
+                    dailyGroups[dateKey] = [];
+                }
+                dailyGroups[dateKey].push({...entry, originalIndex: index});
+            });
+            
+            const aggregatedEntries = [];
+            const aggregatedTimestamps = [];
+            
+            // Process each day
+            Object.keys(dailyGroups).sort((a, b) => new Date(a) - new Date(b)).forEach(dateKey => {
+                const dayEntries = dailyGroups[dateKey];
+                
+                if (dayEntries.length <= 10) {
+                    // If 10 or fewer entries, keep all
+                    dayEntries.forEach(entry => {
+                        aggregatedEntries.push(entry);
+                        aggregatedTimestamps.push(new Date(entry.timestamp));
+                    });
+                } else {
+                    // If more than 10 entries, sample 5 evenly distributed points
+                    const sampleSize = 5;
+                    for (let i = 0; i < sampleSize; i++) {
+                        const index = Math.floor((i * (dayEntries.length - 1)) / (sampleSize - 1));
+                        const entry = dayEntries[index];
+                        aggregatedEntries.push(entry);
+                        aggregatedTimestamps.push(new Date(entry.timestamp));
+                    }
+                }
+            });
+            
+            return { aggregatedEntries, aggregatedTimestamps };
+        }
+
         // Process data for charts
         function processData() {
             const entries = historyData.entries || [];
-            const amazonReviewCounts = entries.map(e => parseInt(e.amazon_review_count) || 0);
-            const goodreadsRatingsCounts = entries.map(e => parseInt(e.goodreads_ratings_count) || 0);
-            const goodreadsReviewsCounts = entries.map(e => parseInt(e.goodreads_reviews_count) || 0);
+            const { aggregatedEntries, aggregatedTimestamps } = aggregateDataByDay(entries);
+            
+            const amazonReviewCounts = aggregatedEntries.map(e => parseInt(e.amazon_review_count) || 0);
+            const goodreadsRatingsCounts = aggregatedEntries.map(e => parseInt(e.goodreads_ratings_count) || 0);
+            const goodreadsReviewsCounts = aggregatedEntries.map(e => parseInt(e.goodreads_reviews_count) || 0);
             
             // Create full datetime objects for tooltips
-            const fullTimestamps = entries.map(e => new Date(e.timestamp));
+            const fullTimestamps = aggregatedTimestamps;
             
             // Create labels that only show date on first occurrence of each day
             const timestamps = [];
@@ -132,7 +177,7 @@
             
             // Get all unique categories
             const categories = new Set();
-            entries.forEach(entry => {
+            aggregatedEntries.forEach(entry => {
                 if (entry.rankings) {
                     entry.rankings.forEach(ranking => categories.add(ranking.category));
                 }
@@ -140,7 +185,7 @@
             
             // Create datasets for each category
             const rankingDatasets = Array.from(categories).map(category => {
-                const data = entries.map(entry => {
+                const data = aggregatedEntries.map(entry => {
                     if (entry.rankings) {
                         const ranking = entry.rankings.find(r => r.category === category);
                         return ranking ? parseInt(ranking.rank) : null;
@@ -160,7 +205,7 @@
                 goodreadsRatingsCounts, 
                 goodreadsReviewsCounts, 
                 rankingDatasets, 
-                entries, 
+                entries: aggregatedEntries, 
                 fullTimestamps 
             };
         }
