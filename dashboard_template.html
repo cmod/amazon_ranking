@@ -317,21 +317,30 @@
             // Create individual charts for each category
             createCategoryCharts(timestamps, rankingDatasets, fullTimestamps);
             
+            // Filter data to only include entries with Goodreads data
+            const goodreadsDataStartIndex = entries.findIndex(entry => 
+                entry.goodreads_ratings_count && parseInt(entry.goodreads_ratings_count) > 0
+            );
+            
+            const filteredTimestamps = timestamps.slice(goodreadsDataStartIndex);
+            const filteredGoodreadsRatings = goodreadsRatingsCounts.slice(goodreadsDataStartIndex);
+            const filteredGoodreadsReviews = goodreadsReviewsCounts.slice(goodreadsDataStartIndex);
+            
             // Goodreads Chart
             new Chart(document.getElementById('goodreadsChart'), {
                 type: 'line',
                 data: {
-                    labels: timestamps,
+                    labels: filteredTimestamps,
                     datasets: [{
                         label: 'Goodreads Ratings',
-                        data: goodreadsRatingsCounts,
+                        data: filteredGoodreadsRatings,
                         borderColor: '#FF6B35',
                         backgroundColor: 'rgba(255, 107, 53, 0.1)',
                         fill: true,
                         tension: 0.1
                     }, {
                         label: 'Goodreads Reviews',
-                        data: goodreadsReviewsCounts,
+                        data: filteredGoodreadsReviews,
                         borderColor: '#8B5A3C',
                         backgroundColor: 'rgba(139, 90, 60, 0.1)',
                         fill: true,
