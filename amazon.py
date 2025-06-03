@@ -8,7 +8,10 @@ import json
 import argparse
 
 # URL of your book's Amazon page
-URL = "https://www.amazon.com/dp/0593732545"
+AMAZON_URL = "https://www.amazon.com/dp/0593732545"
+
+# URL of your book's Goodreads page
+GOODREADS_URL = "https://www.goodreads.com/book/show/217245583"
 
 # Headers to mimic a browser visit (helps avoid bot detection)
 HEADERS = {
@@ -20,23 +23,23 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.9"
 }
 
-def get_book_data():
-    response = requests.get(URL, headers=HEADERS)
+def get_amazon_data():
+    response = requests.get(AMAZON_URL, headers=HEADERS)
     if response.status_code != 200:
-        print("Failed to fetch the page")
+        print("Failed to fetch Amazon page")
         return None
 
     soup = BeautifulSoup(response.content, "html.parser")
     
     data = {
         'rankings': [],
-        'review_count': None,
+        'amazon_review_count': None,
         'overall_rank': None
     }
     
     # Get review count
-    review_count = get_review_count(soup)
-    data['review_count'] = review_count
+    review_count = get_amazon_review_count(soup)
+    data['amazon_review_count'] = review_count
     
     # Get all rankings (overall + sub-categories)
     rankings = get_all_rankings(soup)
@@ -44,7 +47,43 @@ def get_book_data():
     
     return data
 
-def get_review_count(soup):
+def get_goodreads_data():
+    response = requests.get(GOODREADS_URL, headers=HEADERS)
+    if response.status_code != 200:
+        print("Failed to fetch Goodreads page")
+        return None
+
+    soup = BeautifulSoup(response.content, "html.parser")
+    
+    data = {
+        'goodreads_ratings_count': None,
+        'goodreads_reviews_count': None
+    }
+    
+    # Get ratings and reviews count
+    ratings_count = get_goodreads_ratings_count(soup)
+    reviews_count = get_goodreads_reviews_count(soup)
+    
+    data['goodreads_ratings_count'] = ratings_count
+    data['goodreads_reviews_count'] = reviews_count
+    
+    return data
+
+def get_book_data():
+    # Get data from both Amazon and Goodreads
+    amazon_data = get_amazon_data()
+    goodreads_data = get_goodreads_data()
+    
+    # Combine the data
+    combined_data = {}
+    if amazon_data:
+        combined_data.update(amazon_data)
+    if goodreads_data:
+        combined_data.update(goodreads_data)
+    
+    return combined_data if combined_data else None
+
+def get_amazon_review_count(soup):
     try:
         # Look for review count in various formats and locations
         review_patterns = [
@@ -86,7 +125,71 @@ def get_review_count(soup):
         
         return None
     except Exception as e:
-        print(f"Error extracting review count: {e}")
+        print(f"Error extracting Amazon review count: {e}")
+        return None
+
+def get_goodreads_ratings_count(soup):
+    try:
+        # Look for ratings count in various patterns
+        patterns = [
+            r'(\d{1,3}(?:,\d{3})*)\s*ratings?',
+            r'(\d{1,3}(?:,\d{3})*)\s*people\s*rated',
+        ]
+        
+        # Check in data attributes and spans
+        for element in soup.find_all(['span', 'div', 'a']):
+            text = element.get_text()
+            for pattern in patterns:
+                match = re.search(pattern, text, re.IGNORECASE)
+                if match:
+                    num = int(match.group(1).replace(',', ''))
+                    if 1 <= num <= 10000000:  # Reasonable range
+                        return str(num)
+        
+        # Check for specific Goodreads data attributes
+        for element in soup.find_all(attrs={'data-testid': True}):
+            if 'rating' in element.get('data-testid', '').lower():
+                text = element.get_text()
+                for pattern in patterns:
+                    match = re.search(pattern, text, re.IGNORECASE)
+                    if match:
+                        return match.group(1).replace(',', '')
+        
+        return None
+    except Exception as e:
+        print(f"Error extracting Goodreads ratings count: {e}")
+        return None
+
+def get_goodreads_reviews_count(soup):
+    try:
+        # Look for reviews count
+        patterns = [
+            r'(\d{1,3}(?:,\d{3})*)\s*reviews?',
+            r'(\d{1,3}(?:,\d{3})*)\s*people\s*reviewed',
+        ]
+        
+        # Check in various elements
+        for element in soup.find_all(['span', 'div', 'a']):
+            text = element.get_text()
+            for pattern in patterns:
+                match = re.search(pattern, text, re.IGNORECASE)
+                if match:
+                    num = int(match.group(1).replace(',', ''))
+                    if 1 <= num <= 1000000:  # Reasonable range for reviews
+                        return str(num)
+        
+        # Check for specific Goodreads data attributes
+        for element in soup.find_all(attrs={'data-testid': True}):
+            if 'review' in element.get('data-testid', '').lower():
+                text = element.get_text()
+                for pattern in patterns:
+                    match = re.search(pattern, text, re.IGNORECASE)
+                    if match:
+                        return match.group(1).replace(',', '')
+        
+        return None
+    except Exception as e:
+        print(f"Error extracting Goodreads reviews count: {e}")
         return None
 
 def get_all_rankings(soup):
@@ -163,7 +266,9 @@ def save_book_data_json(data):
     # Create entry for this data collection
     entry = {
         'timestamp': now,
-        'review_count': data.get('review_count'),
+        'amazon_review_count': data.get('amazon_review_count'),
+        'goodreads_ratings_count': data.get('goodreads_ratings_count'),
+        'goodreads_reviews_count': data.get('goodreads_reviews_count'),
         'rankings': data.get('rankings', [])
     }
     
@@ -200,22 +305,26 @@ def save_book_data(data):
         
         # Write header if file is new/empty
         if write_header:
-            writer.writerow(["timestamp", "review_count", "category", "rank"])
+            writer.writerow(["timestamp", "amazon_review_count", "goodreads_ratings_count", "goodreads_reviews_count", "category", "rank"])
         
-        # Write review count and each ranking as separate rows
-        review_count = data.get('review_count', 'N/A')
+        # Write review/rating counts and each ranking as separate rows
+        amazon_review_count = data.get('amazon_review_count', 'N/A')
+        goodreads_ratings_count = data.get('goodreads_ratings_count', 'N/A')
+        goodreads_reviews_count = data.get('goodreads_reviews_count', 'N/A')
         
         if data.get('rankings'):
             for ranking in data['rankings']:
                 writer.writerow([
                     now,
-                    review_count,
+                    amazon_review_count,
+                    goodreads_ratings_count,
+                    goodreads_reviews_count,
                     ranking['category'],
                     ranking['rank']
                 ])
         else:
-            # If no rankings found, still record review count
-            writer.writerow([now, review_count, 'N/A', 'N/A'])
+            # If no rankings found, still record review/rating counts
+            writer.writerow([now, amazon_review_count, goodreads_ratings_count, goodreads_reviews_count, 'N/A', 'N/A'])
 
 def generate_html_report(output_dir="."):
     """Generate HTML file with interactive charts showing ranking history"""
@@ -269,14 +378,16 @@ def main():
     
     if data:
         print(f"\nData collected at {datetime.now()}:")
-        print(f"Review count: {data.get('review_count', 'Not found')}")
+        print(f"Amazon review count: {data.get('amazon_review_count', 'Not found')}")
+        print(f"Goodreads ratings count: {data.get('goodreads_ratings_count', 'Not found')}")
+        print(f"Goodreads reviews count: {data.get('goodreads_reviews_count', 'Not found')}")
         
         if data.get('rankings'):
-            print("Rankings:")
+            print("Amazon Rankings:")
             for ranking in data['rankings']:
                 print(f"  #{ranking['rank']} in {ranking['category']}")
         else:
-            print("No rankings found")
+            print("No Amazon rankings found")
         
         # Save data in multiple formats
         save_book_data_json(data)

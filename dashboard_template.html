@@ -62,17 +62,39 @@
     <div class="container">
         <h1>Amazon Book Ranking History</h1>
         
-        <div class="stats" id="stats">
-            <!-- Stats will be populated by JavaScript -->
+        <div class="stats-section">
+            <h3>Amazon Metrics</h3>
+            <div class="stats" id="amazonStats">
+                <!-- Amazon stats will be populated by JavaScript -->
+            </div>
+        </div>
+        
+        <div class="stats-section">
+            <h3>Goodreads Metrics</h3>
+            <div class="stats" id="goodreadsStats">
+                <!-- Goodreads stats will be populated by JavaScript -->
+            </div>
+        </div>
+        
+        <div class="stats-section">
+            <h3>Amazon Rankings</h3>
+            <div class="stats" id="rankingStats">
+                <!-- Ranking stats will be populated by JavaScript -->
+            </div>
         </div>
         
         <div class="chart-container">
-            <h2>Review Count Over Time</h2>
+            <h2>Amazon Review Count Over Time</h2>
             <canvas id="reviewChart"></canvas>
         </div>
         
         <div id="categoryCharts">
             <!-- Category charts will be populated by JavaScript -->
+        </div>
+        
+        <div class="chart-container">
+            <h2>Goodreads Metrics Over Time</h2>
+            <canvas id="goodreadsChart"></canvas>
         </div>
         
         <div class="last-updated" id="lastUpdated">
@@ -87,7 +109,9 @@
         // Process data for charts
         function processData() {
             const entries = historyData.entries || [];
-            const reviewCounts = entries.map(e => parseInt(e.review_count) || 0);
+            const amazonReviewCounts = entries.map(e => parseInt(e.amazon_review_count) || 0);
+            const goodreadsRatingsCounts = entries.map(e => parseInt(e.goodreads_ratings_count) || 0);
+            const goodreadsReviewsCounts = entries.map(e => parseInt(e.goodreads_reviews_count) || 0);
             
             // Create full datetime objects for tooltips
             const fullTimestamps = entries.map(e => new Date(e.timestamp));
@@ -96,15 +120,13 @@
             const timestamps = [];
             let lastDate = null;
             
-            fullTimestamps.forEach((date, i) => {
+            fullTimestamps.forEach(date => {
                 const currentDate = date.toLocaleDateString();
                 if (currentDate !== lastDate) {
                     timestamps.push(currentDate);
                     lastDate = currentDate;
-                    console.log(`Entry ${i}: Showing date ${currentDate}`);
                 } else {
                     timestamps.push(''); // Empty string for subsequent entries on same day
-                    console.log(`Entry ${i}: Blank (same day as ${currentDate})`);
                 }
             });
             
@@ -132,7 +154,15 @@
                 };
             });
             
-            return { timestamps, reviewCounts, rankingDatasets, entries, fullTimestamps };
+            return { 
+                timestamps, 
+                amazonReviewCounts, 
+                goodreadsRatingsCounts, 
+                goodreadsReviewsCounts, 
+                rankingDatasets, 
+                entries, 
+                fullTimestamps 
+            };
         }
         
         function getCategoryColor(index) {
@@ -200,7 +230,8 @@
                                 },
                                 grid: {
                                     color: '#e0e0e0'
-                                }
+                                },
+                                grace: '10%'  // Add 10% padding to top and bottom
                             },
                             x: {
                                 grid: {
@@ -231,16 +262,24 @@
         
         // Create charts
         function createCharts() {
-            const { timestamps, reviewCounts, rankingDatasets, entries, fullTimestamps } = processData();
+            const { 
+                timestamps, 
+                amazonReviewCounts, 
+                goodreadsRatingsCounts, 
+                goodreadsReviewsCounts, 
+                rankingDatasets, 
+                entries, 
+                fullTimestamps 
+            } = processData();
             
-            // Review Chart
+            // Amazon Review Chart
             new Chart(document.getElementById('reviewChart'), {
                 type: 'line',
                 data: {
                     labels: timestamps,
                     datasets: [{
-                        label: 'Review Count',
-                        data: reviewCounts,
+                        label: 'Amazon Reviews',
+                        data: amazonReviewCounts,
                         borderColor: '#28a745',
                         backgroundColor: 'rgba(40, 167, 69, 0.1)',
                         fill: true,
@@ -256,7 +295,8 @@
                             title: {
                                 display: true,
                                 text: 'Number of Reviews'
-                            }
+                            },
+                            grace: '10%'  // Add 10% padding to top
                         }
                     },
                     plugins: {
@@ -278,6 +318,56 @@
             // Create individual charts for each category
             createCategoryCharts(timestamps, rankingDatasets, fullTimestamps);
             
+            // Goodreads Chart
+            new Chart(document.getElementById('goodreadsChart'), {
+                type: 'line',
+                data: {
+                    labels: timestamps,
+                    datasets: [{
+                        label: 'Goodreads Ratings',
+                        data: goodreadsRatingsCounts,
+                        borderColor: '#FF6B35',
+                        backgroundColor: 'rgba(255, 107, 53, 0.1)',
+                        fill: true,
+                        tension: 0.1
+                    }, {
+                        label: 'Goodreads Reviews',
+                        data: goodreadsReviewsCounts,
+                        borderColor: '#8B5A3C',
+                        backgroundColor: 'rgba(139, 90, 60, 0.1)',
+                        fill: true,
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Count'
+                            },
+                            grace: '10%'  // Add 10% padding to top
+                        }
+                    },
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                title: function(context) {
+                                    const index = context[0].dataIndex;
+                                    return formatDateTime(fullTimestamps[index]);
+                                },
+                                label: function(context) {
+                                    return `${context.dataset.label}: ${context.parsed.y}`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+            
             // Update stats
             updateStats(entries);
         }
@@ -286,16 +376,40 @@
             if (entries.length === 0) return;
             
             const latest = entries[entries.length - 1];
-            const statsContainer = document.getElementById('stats');
+            const amazonStatsContainer = document.getElementById('amazonStats');
+            const goodreadsStatsContainer = document.getElementById('goodreadsStats');
+            const rankingStatsContainer = document.getElementById('rankingStats');
             
-            let statsHTML = '';
+            let amazonStatsHTML = '';
+            let goodreadsStatsHTML = '';
+            let rankingStatsHTML = '';
             
-            // Latest review count
-            if (latest.review_count) {
-                statsHTML += `
+            // Latest Amazon review count
+            if (latest.amazon_review_count) {
+                amazonStatsHTML += `
                     <div class="stat-card">
-                        <div class="stat-value">${latest.review_count}</div>
-                        <div class="stat-label">Current Reviews</div>
+                        <div class="stat-value">${latest.amazon_review_count}</div>
+                        <div class="stat-label">Amazon Reviews</div>
+                    </div>
+                `;
+            }
+            
+            // Latest Goodreads ratings count
+            if (latest.goodreads_ratings_count) {
+                goodreadsStatsHTML += `
+                    <div class="stat-card">
+                        <div class="stat-value">${latest.goodreads_ratings_count}</div>
+                        <div class="stat-label">Goodreads Ratings</div>
+                    </div>
+                `;
+            }
+            
+            // Latest Goodreads reviews count
+            if (latest.goodreads_reviews_count) {
+                goodreadsStatsHTML += `
+                    <div class="stat-card">
+                        <div class="stat-value">${latest.goodreads_reviews_count}</div>
+                        <div class="stat-label">Goodreads Reviews</div>
                     </div>
                 `;
             }
@@ -303,7 +417,7 @@
             // Latest rankings
             if (latest.rankings && latest.rankings.length > 0) {
                 latest.rankings.forEach(ranking => {
-                    statsHTML += `
+                    rankingStatsHTML += `
                         <div class="stat-card">
                             <div class="stat-value">#${ranking.rank}</div>
                             <div class="stat-label">${ranking.category}</div>
@@ -312,7 +426,9 @@
                 });
             }
             
-            statsContainer.innerHTML = statsHTML;
+            amazonStatsContainer.innerHTML = amazonStatsHTML;
+            goodreadsStatsContainer.innerHTML = goodreadsStatsHTML;
+            rankingStatsContainer.innerHTML = rankingStatsHTML;
             
             // Update last updated time
             document.getElementById('lastUpdated').textContent = 
