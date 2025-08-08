@@ -263,10 +263,16 @@ def save_book_data_json(data):
     # Ensure data directory exists
     os.makedirs("data", exist_ok=True)
     
+    # Skip saving if amazon_review_count is 0 or None
+    amazon_review_count = data.get('amazon_review_count')
+    if amazon_review_count is None or amazon_review_count == '0' or amazon_review_count == 0:
+        print(f"Skipping data entry with invalid review count: {amazon_review_count}")
+        return
+    
     # Create entry for this data collection
     entry = {
         'timestamp': now,
-        'amazon_review_count': data.get('amazon_review_count'),
+        'amazon_review_count': amazon_review_count,
         'goodreads_ratings_count': data.get('goodreads_ratings_count'),
         'goodreads_reviews_count': data.get('goodreads_reviews_count'),
         'rankings': data.get('rankings', [])
@@ -296,6 +302,12 @@ def save_book_data(data):
     # Ensure data directory exists
     os.makedirs("data", exist_ok=True)
     
+    # Skip saving if amazon_review_count is 0 or None
+    amazon_review_count = data.get('amazon_review_count')
+    if amazon_review_count is None or amazon_review_count == '0' or amazon_review_count == 0:
+        print(f"Skipping CSV data entry with invalid review count: {amazon_review_count}")
+        return
+    
     # Check if file exists and is empty to write header
     write_header = not os.path.exists(filename) or os.path.getsize(filename) == 0
     
@@ -308,7 +320,6 @@ def save_book_data(data):
             writer.writerow(["timestamp", "amazon_review_count", "goodreads_ratings_count", "goodreads_reviews_count", "category", "rank"])
         
         # Write review/rating counts and each ranking as separate rows
-        amazon_review_count = data.get('amazon_review_count', 'N/A')
         goodreads_ratings_count = data.get('goodreads_ratings_count', 'N/A')
         goodreads_reviews_count = data.get('goodreads_reviews_count', 'N/A')
         

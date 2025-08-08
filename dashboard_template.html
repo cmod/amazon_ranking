@@ -150,7 +150,12 @@
 
         // Process data for charts
         function processData() {
-            const entries = historyData.entries || [];
+            const rawEntries = historyData.entries || [];
+            // Filter out entries with invalid amazon_review_count (0, null, undefined, or empty string)
+            const entries = rawEntries.filter(entry => {
+                const reviewCount = entry.amazon_review_count;
+                return reviewCount && reviewCount !== '0' && reviewCount !== 0 && reviewCount !== '';
+            });
             const { aggregatedEntries, aggregatedTimestamps } = aggregateDataByDay(entries);
             
             const amazonReviewCounts = aggregatedEntries.map(e => parseInt(e.amazon_review_count) || 0);
