@@ -130,12 +130,14 @@ def get_amazon_review_count(soup):
 
 def get_goodreads_ratings_count(soup):
     try:
-        # Look for ratings count in various patterns
+        # Look for ratings count - need to be specific to avoid matching star ratings (4.5, etc)
+        # Goodreads typically shows "X,XXX ratings" where X is a reasonable number > 10
         patterns = [
-            r'(\d{1,3}(?:,\d{3})*)\s*ratings?',
-            r'(\d{1,3}(?:,\d{3})*)\s*people\s*rated',
+            # Match patterns like "629 ratings" but exclude small numbers that might be star ratings
+            r'(\d{2,3}(?:,\d{3})*)\s+ratings?',  # At least 2 digits
+            r'(\d{1,3}(?:,\d{3})+)\s+ratings?',  # Or has comma (1,000+)
         ]
-        
+
         # Check in data attributes and spans
         for element in soup.find_all(['span', 'div', 'a']):
             text = element.get_text()
@@ -143,18 +145,22 @@ def get_goodreads_ratings_count(soup):
                 match = re.search(pattern, text, re.IGNORECASE)
                 if match:
                     num = int(match.group(1).replace(',', ''))
-                    if 1 <= num <= 10000000:  # Reasonable range
+                    # Exclude single digit numbers (likely star ratings like 4, 5)
+                    if 10 <= num <= 10000000:  # Reasonable range, minimum 10 ratings
                         return str(num)
-        
+
         # Check for specific Goodreads data attributes
         for element in soup.find_all(attrs={'data-testid': True}):
-            if 'rating' in element.get('data-testid', '').lower():
+            testid = element.get('data-testid', '').lower()
+            if 'rating' in testid:
                 text = element.get_text()
                 for pattern in patterns:
                     match = re.search(pattern, text, re.IGNORECASE)
                     if match:
-                        return match.group(1).replace(',', '')
-        
+                        num = int(match.group(1).replace(',', ''))
+                        if 10 <= num <= 10000000:
+                            return str(num)
+
         return None
     except Exception as e:
         print(f"Error extracting Goodreads ratings count: {e}")
@@ -162,12 +168,12 @@ def get_goodreads_ratings_count(soup):
 
 def get_goodreads_reviews_count(soup):
     try:
-        # Look for reviews count
+        # Look for reviews count - be specific to match actual review counts
         patterns = [
-            r'(\d{1,3}(?:,\d{3})*)\s*reviews?',
-            r'(\d{1,3}(?:,\d{3})*)\s*people\s*reviewed',
+            # Match "98 reviews" type patterns with reasonable numbers
+            r'(\d{1,3}(?:,\d{3})*)\s+reviews?',
         ]
-        
+
         # Check in various elements
         for element in soup.find_all(['span', 'div', 'a']):
             text = element.get_text()
@@ -175,18 +181,22 @@ def get_goodreads_reviews_count(soup):
                 match = re.search(pattern, text, re.IGNORECASE)
                 if match:
                     num = int(match.group(1).replace(',', ''))
+                    # Reviews are typically smaller numbers than ratings, minimum of 1
                     if 1 <= num <= 1000000:  # Reasonable range for reviews
                         return str(num)
-        
+
         # Check for specific Goodreads data attributes
         for element in soup.find_all(attrs={'data-testid': True}):
-            if 'review' in element.get('data-testid', '').lower():
+            testid = element.get('data-testid', '').lower()
+            if 'review' in testid:
                 text = element.get_text()
                 for pattern in patterns:
                     match = re.search(pattern, text, re.IGNORECASE)
                     if match:
-                        return match.group(1).replace(',', '')
-        
+                        num = int(match.group(1).replace(',', ''))
+                        if 1 <= num <= 1000000:
+                            return str(num)
+
         return None
     except Exception as e:
         print(f"Error extracting Goodreads reviews count: {e}")

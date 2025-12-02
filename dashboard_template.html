@@ -76,9 +76,16 @@
         </div>
         
         <div class="stats-section">
-            <h3>Amazon Rankings</h3>
+            <h3>Current Amazon Rankings</h3>
             <div class="stats" id="rankingStats">
                 <!-- Ranking stats will be populated by JavaScript -->
+            </div>
+        </div>
+
+        <div class="stats-section">
+            <h3>Best All-Time Amazon Rankings</h3>
+            <div class="stats" id="bestRankingStats">
+                <!-- Best ranking stats will be populated by JavaScript -->
             </div>
         </div>
         
@@ -431,16 +438,18 @@
         
         function updateStats(entries) {
             if (entries.length === 0) return;
-            
+
             const latest = entries[entries.length - 1];
             const amazonStatsContainer = document.getElementById('amazonStats');
             const goodreadsStatsContainer = document.getElementById('goodreadsStats');
             const rankingStatsContainer = document.getElementById('rankingStats');
-            
+            const bestRankingStatsContainer = document.getElementById('bestRankingStats');
+
             let amazonStatsHTML = '';
             let goodreadsStatsHTML = '';
             let rankingStatsHTML = '';
-            
+            let bestRankingStatsHTML = '';
+
             // Latest Amazon review count
             if (latest.amazon_review_count) {
                 amazonStatsHTML += `
@@ -450,7 +459,7 @@
                     </div>
                 `;
             }
-            
+
             // Latest Goodreads ratings count
             if (latest.goodreads_ratings_count) {
                 goodreadsStatsHTML += `
@@ -460,7 +469,7 @@
                     </div>
                 `;
             }
-            
+
             // Latest Goodreads reviews count
             if (latest.goodreads_reviews_count) {
                 goodreadsStatsHTML += `
@@ -470,7 +479,7 @@
                     </div>
                 `;
             }
-            
+
             // Latest rankings
             if (latest.rankings && latest.rankings.length > 0) {
                 latest.rankings.forEach(ranking => {
@@ -482,13 +491,44 @@
                     `;
                 });
             }
-            
+
+            // Calculate best all-time rankings for each category
+            const bestRankings = {};
+            entries.forEach(entry => {
+                if (entry.rankings) {
+                    entry.rankings.forEach(ranking => {
+                        const rank = parseInt(ranking.rank);
+                        const category = ranking.category;
+
+                        if (!bestRankings[category] || rank < bestRankings[category].rank) {
+                            bestRankings[category] = {
+                                rank: rank,
+                                timestamp: entry.timestamp
+                            };
+                        }
+                    });
+                }
+            });
+
+            // Display best all-time rankings
+            Object.keys(bestRankings).sort((a, b) => bestRankings[a].rank - bestRankings[b].rank).forEach(category => {
+                const best = bestRankings[category];
+                const date = new Date(best.timestamp).toLocaleDateString();
+                bestRankingStatsHTML += `
+                    <div class="stat-card">
+                        <div class="stat-value">#${best.rank}</div>
+                        <div class="stat-label">${category}<br><span style="font-size: 0.8em; color: #999;">${date}</span></div>
+                    </div>
+                `;
+            });
+
             amazonStatsContainer.innerHTML = amazonStatsHTML;
             goodreadsStatsContainer.innerHTML = goodreadsStatsHTML;
             rankingStatsContainer.innerHTML = rankingStatsHTML;
-            
+            bestRankingStatsContainer.innerHTML = bestRankingStatsHTML;
+
             // Update last updated time
-            document.getElementById('lastUpdated').textContent = 
+            document.getElementById('lastUpdated').textContent =
                 `Last updated: ${latest.timestamp}`;
         }
         
