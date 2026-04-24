@@ -5,6 +5,18 @@
       "display_name": "Things Become Other Things",
       "amazon_url": "https://www.amazon.com/dp/0593732545",
       "goodreads_url": "https://www.goodreads.com/book/show/217245583"
+    },
+    {
+      "slug": "blank-space",
+      "display_name": "Blank Space",
+      "amazon_url": "https://www.amazon.com/dp/0593833996",
+      "goodreads_url": "https://www.goodreads.com/book/show/228142774-blank-space"
+    },
+    {
+      "slug": "transcription",
+      "display_name": "Transcription",
+      "amazon_url": "https://www.amazon.com/dp/0374618593",
+      "goodreads_url": "https://www.goodreads.com/book/show/231387262-transcription"
     }
   ]
 }
