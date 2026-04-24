@@ -175,12 +175,12 @@ python migrate_history.py --input data/amazon_history.json \
 
 ### Acceptance criteria
 
-- [ ] Dry-run prints counts, 5-line samples of each transformation, and the envelope preview.
-- [ ] `--commit` writes `data/japan-book.json` atomically + `data/migration_report.json`.
-- [ ] Script refuses if output count is outside `[3500, 6000]`.
-- [ ] Running twice is idempotent — the second run either detects an existing wrapped output and refuses, or produces identical bytes.
-- [ ] Every entry in output has `amazon_review_count`; none has `review_count`; none has empty `rankings`.
-- [ ] Source file `data/amazon_history.json` is unchanged after `--commit`.
+- [x] Dry-run prints counts, 5-line samples of each transformation, and the envelope preview.
+- [x] `--commit` writes `data/japan-book.json` atomically + `data/migration_report.json`.
+- [x] Script refuses if output count is outside `[3500, 6000]`.
+- [x] Running twice is idempotent — the second run either detects an existing wrapped output and refuses, or produces identical bytes.
+- [x] Every entry in output has `amazon_review_count`; none has `review_count`; none has empty `rankings`.
+- [x] Source file `data/amazon_history.json` is unchanged after `--commit`.
 
 **Deploy note:** run on the server where the authoritative 16 MB JSON lives. The SCP snapshot I pulled locally was only for profiling.
 
