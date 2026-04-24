@@ -55,12 +55,34 @@
             font-style: italic;
             margin-top: 20px;
         }
+        .scrape-badge {
+            display: inline-block;
+            padding: 6px 12px;
+            margin: 0 0 16px;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            border: 1px solid transparent;
+        }
+        .scrape-badge.ok      { color: #1e5c2f; background: #e8f5e9; border-color: #2e8b3f; }
+        .scrape-badge.warn    { color: #7a5000; background: #fff8e1; border-color: #c08a20; }
+        .scrape-badge.stale   { color: #8a1a1a; background: #fdecea; border-color: #c03838; }
+        .scrape-badge.pending { color: #555;    background: #eee;    border-color: #bbb;    }
+        .scrape-badge details { display: inline-block; margin-left: 0.5rem; }
+        .scrape-badge details pre {
+            background: rgba(0,0,0,0.06);
+            padding: 0.5rem;
+            border-radius: 3px;
+            font-size: 0.8rem;
+            white-space: pre-wrap;
+            margin: 0.25rem 0 0;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Amazon Book Ranking History</h1>
-        
+        <h1 id="pageTitle">Amazon Book Ranking History</h1>
+        <div id="scrapeBadge" class="scrape-badge pending">Pending first scrape</div>
+
         <div class="stats-section">
             <h3>Amazon Metrics</h3>
             <div class="stats" id="amazonStats">
@@ -111,7 +133,72 @@
     <script>
         // Embedded data - will be replaced by Python
         const historyData = {{DATA_PLACEHOLDER}};
-        
+
+        // Display name + badge: derived from the envelope's top-level fields.
+        function applyBookIdentity() {
+            const name = historyData.display_name;
+            if (name) {
+                document.title = name;
+                const h1 = document.getElementById('pageTitle');
+                if (h1) h1.textContent = name;
+            }
+        }
+
+        function formatRelative(date) {
+            const diffMs = Date.now() - date.getTime();
+            const mins = Math.round(diffMs / 60000);
+            if (mins < 1) return 'just now';
+            if (mins < 60) return `${mins}m ago`;
+            const hours = Math.round(mins / 60);
+            if (hours < 24) return `${hours}h ago`;
+            const days = Math.round(hours / 24);
+            return `${days}d ago`;
+        }
+
+        function renderBadge() {
+            const el = document.getElementById('scrapeBadge');
+            if (!el) return;
+            el.classList.remove('ok', 'warn', 'stale', 'pending');
+
+            const lastOk = historyData.last_successful_scrape;
+            const lastErr = historyData.last_error;
+
+            if (!lastOk) {
+                el.classList.add('pending');
+                el.textContent = 'Pending first scrape';
+                return;
+            }
+
+            const date = new Date(lastOk.replace(' ', 'T'));
+            const ageHours = (Date.now() - date.getTime()) / 3600000;
+
+            let cls = 'ok', prefix = '';
+            if (ageHours > 6) { cls = 'stale'; prefix = '⚠ '; }
+            else if (ageHours > 2) { cls = 'warn'; }
+
+            el.classList.add(cls);
+            el.textContent = `${prefix}Last updated: ${formatRelative(date)}`;
+
+            if (lastErr) {
+                const details = document.createElement('details');
+                details.innerHTML = `<summary>error</summary><pre>${lastErr}</pre>`;
+                el.appendChild(details);
+            }
+        }
+
+        // 7-day moving average (time-windowed). Skips null values in window.
+        function movingAverage(values, timestamps, windowDays = 7) {
+            const msWindow = windowDays * 24 * 3600 * 1000;
+            return values.map((_, i) => {
+                const tNow = timestamps[i].getTime();
+                let sum = 0, n = 0;
+                for (let j = i; j >= 0 && timestamps[j].getTime() >= tNow - msWindow; j--) {
+                    if (values[j] != null) { sum += values[j]; n++; }
+                }
+                return n ? sum / n : null;
+            });
+        }
+
         // Function to aggregate data by day with sampling when needed
         function aggregateDataByDay(entries) {
             const dailyGroups = {};
@@ -260,22 +347,38 @@
                 // (Books overall rank: ~4K to ~140K). Linear reads better for tight sub-category ranges.
                 const isWideRange = dataset.label === 'Books';
 
+                const maData = movingAverage(dataset.data, fullTimestamps, 7);
+                const maVisible = dataset.data.filter(v => v != null).length >= 3;
+
                 new Chart(canvas, {
                     type: 'line',
                     data: {
                         labels: timestamps,
-                        datasets: [{
-                            label: dataset.label,
-                            data: dataset.data,
-                            borderColor: getCategoryColor(index),
-                            backgroundColor: getCategoryColor(index) + '20', // Add transparency
-                            fill: true,
-                            tension: 0.1,
-                            pointBackgroundColor: getCategoryColor(index),
-                            pointBorderColor: '#fff',
-                            pointBorderWidth: 2,
-                            pointRadius: 5
-                        }]
+                        datasets: [
+                            {
+                                label: dataset.label,
+                                data: dataset.data,
+                                borderColor: getCategoryColor(index),
+                                backgroundColor: getCategoryColor(index) + '20',
+                                fill: true,
+                                tension: 0.1,
+                                pointBackgroundColor: getCategoryColor(index),
+                                pointBorderColor: '#fff',
+                                pointBorderWidth: 2,
+                                pointRadius: 5
+                            },
+                            ...(maVisible ? [{
+                                label: '7-day avg',
+                                data: maData,
+                                borderColor: getCategoryColor(index),
+                                borderWidth: 3,
+                                borderDash: [6, 4],
+                                pointRadius: 0,
+                                fill: false,
+                                tension: 0.3,
+                                spanGaps: true
+                            }] : [])
+                        ]
                     },
                     options: {
                         responsive: true,
@@ -323,7 +426,72 @@
                 });
             });
         }
-        
+
+        function createCombinedChart(timestamps, rankingDatasets, fullTimestamps) {
+            // Exclude Books (its 4K-140K range swamps the sub-categories)
+            const subCats = rankingDatasets.filter(d => d.label !== 'Books');
+            if (subCats.length < 2) return;
+
+            const parent = document.getElementById('categoryCharts');
+            const chartContainer = document.createElement('div');
+            chartContainer.className = 'chart-container';
+
+            const title = document.createElement('h2');
+            title.textContent = 'All Sub-Categories (combined)';
+            chartContainer.appendChild(title);
+
+            const canvas = document.createElement('canvas');
+            canvas.id = 'combinedChart';
+            chartContainer.appendChild(canvas);
+            parent.appendChild(chartContainer);
+
+            // Log reversed shared axis — sub-cat ranges differ ~80x, linear would flatten smaller ranks
+            new Chart(canvas, {
+                type: 'line',
+                data: {
+                    labels: timestamps,
+                    datasets: subCats.map((d, i) => ({
+                        label: d.label,
+                        data: d.data,
+                        borderColor: getCategoryColor(i),
+                        backgroundColor: 'transparent',
+                        fill: false,
+                        tension: 0.1,
+                        pointRadius: 2,
+                        spanGaps: false
+                    }))
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    scales: {
+                        y: {
+                            type: 'logarithmic',
+                            reverse: true,
+                            min: 1,
+                            title: { display: true, text: 'Ranking (higher on chart = better)' },
+                            ticks: { format: { notation: 'compact' } }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: true, position: 'bottom' },
+                        tooltip: {
+                            callbacks: {
+                                title: function(context) {
+                                    const index = context[0].dataIndex;
+                                    return formatDateTime(fullTimestamps[index]);
+                                },
+                                label: function(context) {
+                                    return `${context.dataset.label}: #${context.parsed.y}`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
         // Create charts
         function createCharts() {
             const { 
@@ -382,7 +550,10 @@
             
             // Create individual charts for each category
             createCategoryCharts(timestamps, rankingDatasets, fullTimestamps);
-            
+
+            // Combined all-sub-categories chart (excludes Books due to range)
+            createCombinedChart(timestamps, rankingDatasets, fullTimestamps);
+
             // Filter data to only include entries with Goodreads data
             const goodreadsDataStartIndex = entries.findIndex(entry => 
                 entry.goodreads_ratings_count && parseInt(entry.goodreads_ratings_count) > 0
@@ -543,8 +714,12 @@
                 `Last updated: ${latest.timestamp}`;
         }
         
-        // Initialize charts when page loads
-        document.addEventListener('DOMContentLoaded', createCharts);
+        // Initialize page on load
+        document.addEventListener('DOMContentLoaded', () => {
+            applyBookIdentity();
+            renderBadge();
+            createCharts();
+        });
     </script>
 </body>
 </html>

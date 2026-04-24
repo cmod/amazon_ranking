@@ -1,7 +1,7 @@
 ---
 title: Amazon Ranking Tool — Multi-Book Support, Chart Fixes, and Data Cleanup
 type: feat
-status: active
+status: completed
 date: 2026-04-24
 deepened: 2026-04-24
 ---
@@ -284,12 +284,12 @@ crontab /tmp/cron.bak
 
 ### Acceptance criteria
 
-- [ ] `books.json` with Japan book loads; invalid slug / duplicate slug / missing required field aborts with a clear error.
-- [ ] Missing `goodreads_url` doesn't break scrape; book's dashboard omits Goodreads charts gracefully.
-- [ ] Per-book exception in the loop does not abort the rest.
-- [ ] Each book's data persists to `data/{slug}.json` with the canonical envelope.
-- [ ] Top-level index lists books with existing data files; books with no data yet show "pending first scrape" placeholder.
-- [ ] Adding a new book to `books.json` requires zero Python code edits.
+- [x] `books.json` with Japan book loads; invalid slug / duplicate slug / missing required field aborts with a clear error.
+- [x] Missing `goodreads_url` doesn't break scrape; book's dashboard omits Goodreads charts gracefully.
+- [x] Per-book exception in the loop does not abort the rest.
+- [x] Each book's data persists to `data/{slug}.json` with the canonical envelope.
+- [x] Top-level index lists books with existing data files; books with no data yet show "pending first scrape" placeholder.
+- [x] Adding a new book to `books.json` requires zero Python code edits.
 
 ## Phase 5 — Write-on-Change & Scraper Reliability
 
@@ -398,13 +398,13 @@ Heartbeats count as success for the purposes of `last_successful_scrape` and `la
 
 ### Acceptance criteria
 
-- [ ] Two runs with no Amazon change: 0 new entries appended to `data/{slug}.json`.
-- [ ] `data/scrape_log.jsonl` gains one line per book per run, regardless of change outcome.
-- [ ] Simulated HTTP 503: triggers one retry with 2s backoff, then logs failure.
-- [ ] `last_successful_scrape` updates on both change and no-change outcomes.
-- [ ] `last_error` populates on failure, clears on next success.
-- [ ] User-Agent references a Chrome version released within the last 6 months.
-- [ ] Per-book exception inside `scrape_book()` does not abort the outer loop.
+- [x] Two runs with no Amazon change: 0 new entries appended to `data/{slug}.json`.
+- [x] `data/scrape_log.jsonl` gains one line per book per run, regardless of change outcome.
+- [x] Simulated HTTP 503: triggers one retry with 2s backoff, then logs failure.
+- [x] `last_successful_scrape` updates on both change and no-change outcomes.
+- [x] `last_error` populates on failure, clears on next success.
+- [x] User-Agent references a Chrome version released within the last 6 months.
+- [x] Per-book exception inside `scrape_book()` does not abort the outer loop.
 
 ## Phase 6 — Dashboard Enrichment
 
@@ -460,10 +460,10 @@ function movingAverage(points, windowDays = 7) {
 
 ### Acceptance criteria
 
-- [ ] Badge shows relative time; color transitions at 2h and 6h; "pending first scrape" state for never-scraped books.
-- [ ] MA overlay visible on ranking charts only; absent from review/Goodreads charts; renders partial on books with <7 days of data.
-- [ ] Combined chart renders with all sub-categories on a shared log-reversed axis; hidden if <2 sub-categories.
-- [ ] Mobile layout (<600 px viewport) remains usable.
+- [x] Badge shows relative time; color transitions at 2h and 6h; "pending first scrape" state for never-scraped books.
+- [x] MA overlay visible on ranking charts only; absent from review/Goodreads charts; renders partial on books with <7 days of data.
+- [x] Combined chart renders with all sub-categories on a shared log-reversed axis; hidden if <2 sub-categories.
+- [x] Mobile layout (<600 px viewport) remains usable.
 
 ## Implementation Order & Dependencies
 

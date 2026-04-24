@@ -1,90 +1,151 @@
+#!/usr/bin/env python3
+"""
+amazon.py — scrape Amazon (and optionally Goodreads) for one or more books
+configured in books.json, append changed entries to per-book history files,
+log every attempt, and render per-book dashboards plus a top-level index.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import os
+import re
+import sys
+import tempfile
+import time
+from datetime import datetime
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
+
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime
-import re
-import os
-import json
-import argparse
 
-# URL of your book's Amazon page
-AMAZON_URL = "https://www.amazon.com/dp/0593732545"
+ROOT = Path(__file__).resolve().parent
+BOOKS_FILE = ROOT / "books.json"
+DATA_DIR = ROOT / "data"
+LOG_FILE = DATA_DIR / "scrape_log.jsonl"
+TEMPLATE_FILE = ROOT / "dashboard_template.html"
 
-# URL of your book's Goodreads page
-GOODREADS_URL = "https://www.goodreads.com/book/show/217245583"
+SLUG_RE = re.compile(r"^[a-z0-9-]+$")
+INTER_BOOK_DELAY = 2.0       # seconds between books to avoid bot-detection bursts
+FETCH_ATTEMPTS = 2
+FETCH_BACKOFF = 2.0          # base for exponential backoff: 2s, 4s
 
-# Headers to mimic a browser visit (helps avoid bot detection)
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/91.0.4472.124 Safari/537.36"
+        "Chrome/130.0.0.0 Safari/537.36"
     ),
-    "Accept-Language": "en-US,en;q=0.9"
+    "Accept": (
+        "text/html,application/xhtml+xml,application/xml;q=0.9,"
+        "image/avif,image/webp,image/apng,*/*;q=0.8"
+    ),
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
 }
 
-def get_amazon_data():
-    response = requests.get(AMAZON_URL, headers=HEADERS)
-    if response.status_code != 200:
-        print("Failed to fetch Amazon page")
+
+# ---------- Logging ----------
+
+class JsonlFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        payload = {
+            "ts": self.formatTime(record, "%Y-%m-%dT%H:%M:%S"),
+            "level": record.levelname,
+            "msg": record.getMessage(),
+            **getattr(record, "extra_fields", {}),
+        }
+        return json.dumps(payload, ensure_ascii=False)
+
+
+def get_logger() -> logging.Logger:
+    log = logging.getLogger("scrape")
+    if log.handlers:
+        return log
+    log.setLevel(logging.INFO)
+    DATA_DIR.mkdir(exist_ok=True)
+    handler = RotatingFileHandler(
+        LOG_FILE, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8",
+    )
+    handler.setFormatter(JsonlFormatter())
+    log.addHandler(handler)
+    return log
+
+
+# ---------- Books config ----------
+
+def load_books() -> list[dict]:
+    if not BOOKS_FILE.exists():
+        raise SystemExit(f"error: {BOOKS_FILE} not found")
+    config = json.loads(BOOKS_FILE.read_text())
+    books = config.get("books", [])
+    if not books:
+        raise SystemExit(f"error: {BOOKS_FILE} has no books")
+    seen_slugs = set()
+    for b in books:
+        slug = b.get("slug", "")
+        if not SLUG_RE.match(slug):
+            raise SystemExit(f"error: invalid slug {slug!r} (must match {SLUG_RE.pattern})")
+        if slug in seen_slugs:
+            raise SystemExit(f"error: duplicate slug {slug!r}")
+        seen_slugs.add(slug)
+        if not b.get("amazon_url"):
+            raise SystemExit(f"error: book {slug!r} missing amazon_url")
+        if not b.get("display_name"):
+            raise SystemExit(f"error: book {slug!r} missing display_name")
+    return books
+
+
+# ---------- HTTP ----------
+
+def fetch_with_retry(url: str):
+    for i in range(FETCH_ATTEMPTS):
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=30)
+            if r.status_code == 404:
+                return None  # permanent
+            r.raise_for_status()
+            return r
+        except requests.RequestException:
+            if i == FETCH_ATTEMPTS - 1:
+                return None
+            time.sleep(FETCH_BACKOFF * (2 ** i))
+    return None
+
+
+# ---------- Page scraping ----------
+
+def get_amazon_data(url: str) -> dict | None:
+    response = fetch_with_retry(url)
+    if response is None:
         return None
-
     soup = BeautifulSoup(response.content, "html.parser")
-    
-    data = {
-        'rankings': [],
-        'amazon_review_count': None,
-        'overall_rank': None
+    return {
+        "amazon_review_count": get_amazon_review_count(soup),
+        "rankings": get_all_rankings(soup),
     }
-    
-    # Get review count
-    review_count = get_amazon_review_count(soup)
-    data['amazon_review_count'] = review_count
-    
-    # Get all rankings (overall + sub-categories)
-    rankings = get_all_rankings(soup)
-    data['rankings'] = rankings
-    
-    return data
 
-def get_goodreads_data():
-    response = requests.get(GOODREADS_URL, headers=HEADERS)
-    if response.status_code != 200:
-        print("Failed to fetch Goodreads page")
+
+def get_goodreads_data(url: str) -> dict | None:
+    response = fetch_with_retry(url)
+    if response is None:
         return None
-
     soup = BeautifulSoup(response.content, "html.parser")
-    
-    data = {
-        'goodreads_ratings_count': None,
-        'goodreads_reviews_count': None
+    return {
+        "goodreads_ratings_count": get_goodreads_ratings_count(soup),
+        "goodreads_reviews_count": get_goodreads_reviews_count(soup),
     }
-    
-    # Get ratings and reviews count
-    ratings_count = get_goodreads_ratings_count(soup)
-    reviews_count = get_goodreads_reviews_count(soup)
-    
-    data['goodreads_ratings_count'] = ratings_count
-    data['goodreads_reviews_count'] = reviews_count
-    
-    return data
 
-def get_book_data():
-    # Get data from both Amazon and Goodreads
-    amazon_data = get_amazon_data()
-    goodreads_data = get_goodreads_data()
-    
-    # Combine the data
-    combined_data = {}
-    if amazon_data:
-        combined_data.update(amazon_data)
-    if goodreads_data:
-        combined_data.update(goodreads_data)
-    
-    return combined_data if combined_data else None
 
 def get_amazon_review_count(soup):
     try:
-        # Look for review count in various formats and locations
         review_patterns = [
             r'(\d{1,3}(?:,\d{3})*)\s*(?:customer\s*)?reviews?',
             r'(\d{1,3}(?:,\d{3})*)\s*ratings?',
@@ -92,231 +153,314 @@ def get_amazon_review_count(soup):
         ]
 
         for pattern in review_patterns:
-            # Check in specific data attributes
+            # Look in data-hook-tagged elements first (Amazon uses these)
             for element in soup.find_all(attrs={'data-hook': True}):
-                if any(keyword in element.get('data-hook', '').lower() 
+                if any(keyword in element.get('data-hook', '').lower()
                        for keyword in ['reviews', 'rating', 'total']):
-                    text = element.get_text()
-                    match = re.search(pattern, text, re.IGNORECASE)
+                    match = re.search(pattern, element.get_text(), re.IGNORECASE)
                     if match:
                         return match.group(1).replace(',', '')
-            
-            # Check in all text content for review patterns
-            page_text = soup.get_text()
-            matches = re.findall(pattern, page_text, re.IGNORECASE)
-            if matches:
-                # Return the first reasonable number (not too large)
-                for match in matches:
-                    num = int(match.replace(',', ''))
-                    if 1 <= num <= 1000000:  # Reasonable review count range
-                        return str(num)
-        
+
+            # Fall back to full-page text
+            for match in re.findall(pattern, soup.get_text(), re.IGNORECASE):
+                num = int(match.replace(',', ''))
+                if 1 <= num <= 1000000:
+                    return str(num)
         return None
     except Exception as e:
-        print(f"Error extracting Amazon review count: {e}")
+        print(f"Error extracting Amazon review count: {e}", file=sys.stderr)
         return None
+
 
 def get_goodreads_ratings_count(soup):
     try:
-        # Look for the specific span with data-testid="ratingsCount"
-        # Format: <span data-testid="ratingsCount">1,088&nbsp;ratings</span>
-        ratings_span = soup.find('span', {'data-testid': 'ratingsCount'})
-        if ratings_span:
-            text = ratings_span.get_text()
-            # Extract the number from text like "1,088 ratings"
-            match = re.search(r'([\d,]+)', text)
+        span = soup.find('span', {'data-testid': 'ratingsCount'})
+        if span:
+            match = re.search(r'([\d,]+)', span.get_text())
             if match:
-                num = int(match.group(1).replace(',', ''))
-                return str(num)
-
+                return str(int(match.group(1).replace(',', '')))
         return None
     except Exception as e:
-        print(f"Error extracting Goodreads ratings count: {e}")
+        print(f"Error extracting Goodreads ratings count: {e}", file=sys.stderr)
         return None
+
 
 def get_goodreads_reviews_count(soup):
     try:
-        # Look for the specific span with data-testid="reviewsCount"
-        # Format: <span data-testid="reviewsCount">168&nbsp;reviews</span>
-        reviews_span = soup.find('span', {'data-testid': 'reviewsCount'})
-        if reviews_span:
-            text = reviews_span.get_text()
-            # Extract the number from text like "168 reviews"
-            match = re.search(r'([\d,]+)', text)
+        span = soup.find('span', {'data-testid': 'reviewsCount'})
+        if span:
+            match = re.search(r'([\d,]+)', span.get_text())
             if match:
-                num = int(match.group(1).replace(',', ''))
-                return str(num)
-
+                return str(int(match.group(1).replace(',', '')))
         return None
     except Exception as e:
-        print(f"Error extracting Goodreads reviews count: {e}")
+        print(f"Error extracting Goodreads reviews count: {e}", file=sys.stderr)
         return None
+
 
 def get_all_rankings(soup):
     rankings = []
-    
     try:
-        # Find Best Sellers Rank section
         rank_section = soup.find(string=lambda t: t and "Best Sellers Rank" in t)
         if not rank_section:
-            print("Sales rank not found.")
             return rankings
-        
-        # Get the parent element containing all ranking info
+
         rank_container = rank_section.parent
-        
-        # Traverse up to find a container with ranking information
-        max_traversals = 5
-        traversal_count = 0
-        while (rank_container and 
-               traversal_count < max_traversals and 
-               not rank_container.find_all(['li', 'span'])):
+        for _ in range(5):
+            if rank_container is None or rank_container.find_all(['li', 'span']):
+                break
             rank_container = rank_container.parent
-            traversal_count += 1
-        
-        if not rank_container:
-            print("Could not find ranking container.")
+        if rank_container is None:
             return rankings
-        
-        # Extract rankings from the container
+
         rank_text = rank_container.get_text()
-        
-        # Matches "#4 in General Japan Travel Guides" or "#123,456 in Books (See Top 100)"
         rank_pattern = r'#([\d,]+)\s+in\s+([^#\n]+?)(?=\s*(?:#|\s*$))'
 
         for rank_num, category in re.findall(rank_pattern, rank_text, re.MULTILINE | re.IGNORECASE):
-            # Clean up category text; drop trailing "(See Top 100 in Books)"-style parenthetical
             cleaned_category = re.sub(r'\s*\([^)]*\)\s*$', '', category.strip()).strip()
-
-            if cleaned_category and rank_num and len(cleaned_category) < 100:  # Sanity check
+            if cleaned_category and rank_num and len(cleaned_category) < 100:
                 rankings.append({
                     'rank': rank_num.replace(',', ''),
                     'category': cleaned_category
                 })
-        
-        # Remove duplicates while preserving order
-        seen_categories = set()
-        unique_rankings = []
-        for ranking in rankings:
-            if ranking['category'] not in seen_categories:
-                seen_categories.add(ranking['category'])
-                unique_rankings.append(ranking)
-        
-        return unique_rankings
-        
+
+        # Dedupe by category while preserving order
+        seen = set()
+        return [r for r in rankings if not (r['category'] in seen or seen.add(r['category']))]
     except Exception as e:
-        print(f"Error extracting rankings: {e}")
+        print(f"Error extracting rankings: {e}", file=sys.stderr)
         return rankings
 
-def save_book_data_json(data):
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    filename = "data/amazon_history.json"
-    
-    # Ensure data directory exists
-    os.makedirs("data", exist_ok=True)
-    
-    # Skip saving if amazon_review_count is 0 or None
-    amazon_review_count = data.get('amazon_review_count')
-    if amazon_review_count is None or amazon_review_count == '0' or amazon_review_count == 0:
-        print(f"Skipping data entry with invalid review count: {amazon_review_count}")
-        return
-    
-    # Create entry for this data collection
-    entry = {
-        'timestamp': now,
-        'amazon_review_count': amazon_review_count,
-        'goodreads_ratings_count': data.get('goodreads_ratings_count'),
-        'goodreads_reviews_count': data.get('goodreads_reviews_count'),
-        'rankings': data.get('rankings', [])
+
+# ---------- Signatures & persistence ----------
+
+def _norm_count(v):
+    if v in (None, "", "0", 0):
+        return None
+    return int(v) if isinstance(v, str) else v
+
+
+def entry_signature(entry: dict, has_goodreads: bool) -> tuple:
+    # Sort rankings by category (not rank) — categories are the stable identifier;
+    # sorting by rank causes false "no change" signatures when ranks cross.
+    rankings = tuple(sorted(
+        (r["category"], int(r["rank"]))
+        for r in entry.get("rankings", [])
+    ))
+    base = (_norm_count(entry.get("amazon_review_count")), rankings)
+    if has_goodreads:
+        base = base + (
+            _norm_count(entry.get("goodreads_ratings_count")),
+            _norm_count(entry.get("goodreads_reviews_count")),
+        )
+    return base
+
+
+def load_envelope(slug: str, display_name: str) -> dict:
+    path = DATA_DIR / f"{slug}.json"
+    if path.exists():
+        try:
+            data = json.loads(path.read_text())
+            if isinstance(data, dict) and "entries" in data:
+                data["slug"] = slug
+                data["display_name"] = display_name  # books.json is source of truth
+                data.setdefault("last_successful_scrape", None)
+                data.setdefault("last_error", None)
+                data.setdefault("last_attempt_timestamp", None)
+                data.setdefault("last_attempt_status", None)
+                return data
+        except json.JSONDecodeError:
+            pass
+    return {
+        "slug": slug,
+        "display_name": display_name,
+        "last_successful_scrape": None,
+        "last_error": None,
+        "last_attempt_timestamp": None,
+        "last_attempt_status": None,
+        "entries": [],
     }
-    
-    # Load existing data or create new structure
-    if os.path.exists(filename):
-        with open(filename, 'r') as file:
-            try:
-                history_data = json.load(file)
-            except json.JSONDecodeError:
-                history_data = {'entries': []}
-    else:
-        history_data = {'entries': []}
-    
-    # Add new entry
-    history_data['entries'].append(entry)
-    
-    # Save updated data
-    with open(filename, 'w') as file:
-        json.dump(history_data, file, indent=2)
 
-def generate_html_report(output_dir="."):
-    """Generate HTML file with interactive charts showing ranking history"""
-    
-    # Load JSON data
-    json_filename = "data/amazon_history.json"
-    if not os.path.exists(json_filename):
-        print("No JSON data file found. Run the scraper first.")
-        return
-    
-    with open(json_filename, 'r') as file:
-        history_data = json.load(file)
-    
-    # Load HTML template
-    template_filename = "dashboard_template.html"
-    if not os.path.exists(template_filename):
-        print(f"Template file {template_filename} not found.")
-        return
-    
-    with open(template_filename, 'r') as file:
-        html_template = file.read()
-    
-    # Replace placeholder with actual data
-    html_content = html_template.replace(
-        '{{DATA_PLACEHOLDER}}', 
-        json.dumps(history_data, indent=2)
+
+def write_atomic(path: Path, data) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = tempfile.NamedTemporaryFile(
+        mode="w", dir=path.parent, prefix=f".{path.name}.", suffix=".tmp",
+        delete=False, encoding="utf-8",
     )
-    
-    # Ensure output directory exists
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # Write HTML file to specified directory
-    output_file = os.path.join(output_dir, "index.html")
-    with open(output_file, "w") as file:
-        file.write(html_content)
-    
-    print(f"HTML dashboard generated: {output_file}")
+    try:
+        json.dump(data, tmp, indent=2, ensure_ascii=False)
+        tmp.flush()
+        os.fsync(tmp.fileno())
+    finally:
+        tmp.close()
+    os.replace(tmp.name, path)
 
 
-def main():
-    # Parse command line arguments
-    parser = argparse.ArgumentParser(description='Amazon Book Ranking Tracker')
-    parser.add_argument('--output-dir', '-o', 
-                       default='.', 
-                       help='Output directory for index.html (default: current directory)')
-    
-    args = parser.parse_args()
-    
-    print("Fetching Amazon book data...")
-    data = get_book_data()
-    
-    if data:
-        print(f"\nData collected at {datetime.now()}:")
-        print(f"Amazon review count: {data.get('amazon_review_count', 'Not found')}")
-        print(f"Goodreads ratings count: {data.get('goodreads_ratings_count', 'Not found')}")
-        print(f"Goodreads reviews count: {data.get('goodreads_reviews_count', 'Not found')}")
-        
-        if data.get('rankings'):
-            print("Amazon Rankings:")
-            for ranking in data['rankings']:
-                print(f"  #{ranking['rank']} in {ranking['category']}")
+# ---------- Per-book scrape ----------
+
+def scrape_book(book: dict, log: logging.Logger) -> None:
+    slug = book["slug"]
+    display_name = book["display_name"]
+    has_goodreads = bool(book.get("goodreads_url"))
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    envelope = load_envelope(slug, display_name)
+    envelope["last_attempt_timestamp"] = now
+
+    data_path = DATA_DIR / f"{slug}.json"
+
+    amazon_data = get_amazon_data(book["amazon_url"])
+    if amazon_data is None or not amazon_data.get("rankings"):
+        envelope["last_attempt_status"] = "failed"
+        envelope["last_error"] = "Amazon fetch failed or returned no rankings"
+        write_atomic(data_path, envelope)
+        log.info("scrape", extra={"extra_fields": {
+            "slug": slug, "status": "failed", "reason": "amazon-fetch",
+        }})
+        print(f"[{slug}] failed: Amazon fetch")
+        return
+
+    arc = amazon_data.get("amazon_review_count")
+    if arc is None or arc in ("0", 0):
+        envelope["last_attempt_status"] = "failed"
+        envelope["last_error"] = f"Invalid amazon_review_count: {arc!r}"
+        write_atomic(data_path, envelope)
+        log.info("scrape", extra={"extra_fields": {
+            "slug": slug, "status": "failed", "reason": "invalid-review-count",
+        }})
+        print(f"[{slug}] failed: invalid review count ({arc!r})")
+        return
+
+    new_entry = {
+        "timestamp": now,
+        "amazon_review_count": arc,
+        "rankings": amazon_data.get("rankings"),
+    }
+
+    if has_goodreads:
+        gr_data = get_goodreads_data(book["goodreads_url"])
+        if gr_data:
+            # Only include fields if both are present; None-mixed entries pollute signatures.
+            ratings = gr_data.get("goodreads_ratings_count")
+            reviews = gr_data.get("goodreads_reviews_count")
+            if ratings is not None:
+                new_entry["goodreads_ratings_count"] = ratings
+            if reviews is not None:
+                new_entry["goodreads_reviews_count"] = reviews
+        # Goodreads fetch failure is not a scrape-level failure — omit and move on.
+
+    entries = envelope["entries"]
+    new_sig = entry_signature(new_entry, has_goodreads)
+    wrote_entry = False
+    if not entries or entry_signature(entries[-1], has_goodreads) != new_sig:
+        entries.append(new_entry)
+        wrote_entry = True
+
+    envelope["last_successful_scrape"] = now
+    envelope["last_error"] = None
+    envelope["last_attempt_status"] = "appended" if wrote_entry else "no-change"
+    envelope["entries"] = entries
+
+    write_atomic(data_path, envelope)
+
+    log.info("scrape", extra={"extra_fields": {
+        "slug": slug, "status": "success", "wrote_entry": wrote_entry,
+        "reason": "appended" if wrote_entry else "no-change",
+    }})
+
+    gr_status = "no"
+    if has_goodreads and "goodreads_ratings_count" in new_entry:
+        gr_status = "yes"
+    print(f"[{slug}] {'appended' if wrote_entry else 'no-change'}: "
+          f"reviews={arc} rankings={len(new_entry['rankings'])} goodreads={gr_status}")
+
+
+# ---------- Dashboard generation ----------
+
+def generate_book_dashboard(book: dict, output_dir: Path) -> bool:
+    slug = book["slug"]
+    data_path = DATA_DIR / f"{slug}.json"
+    if not data_path.exists():
+        return False
+    template = TEMPLATE_FILE.read_text()
+    html = template.replace("{{DATA_PLACEHOLDER}}", data_path.read_text())
+    dest = output_dir / slug / "index.html"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(html)
+    return True
+
+
+def generate_top_index(books: list[dict], output_dir: Path) -> None:
+    rows = []
+    for b in books:
+        slug = b["slug"]
+        name = b["display_name"]
+        if (DATA_DIR / f"{slug}.json").exists():
+            rows.append(f'      <li><a href="{slug}/">{name}</a></li>')
         else:
-            print("No Amazon rankings found")
-        
-        save_book_data_json(data)
-        print(f"\nData saved to data/amazon_history.json")
+            rows.append(f'      <li>{name} <em>(pending first scrape)</em></li>')
 
-        # Generate HTML dashboard in specified directory
-        generate_html_report(args.output_dir)
-    else:
-        print("Failed to fetch book data")
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Book Tracking</title>
+  <style>
+    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+           max-width: 600px; margin: 4rem auto; padding: 0 1rem; color: #222; }}
+    h1 {{ font-size: 1.5rem; margin-bottom: 1rem; }}
+    ul {{ line-height: 1.8; padding-left: 1.25rem; }}
+    a {{ color: #0366d6; text-decoration: none; }}
+    a:hover {{ text-decoration: underline; }}
+    em {{ color: #999; font-style: italic; }}
+  </style>
+</head>
+<body>
+  <h1>Tracked Books</h1>
+  <ul>
+{chr(10).join(rows)}
+  </ul>
+</body>
+</html>
+"""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "index.html").write_text(html)
+
+
+# ---------- Main ----------
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Amazon Book Ranking Tracker")
+    parser.add_argument("--output-dir", "-o", default=".",
+                        help="Output directory for dashboards (default: current directory)")
+    parser.add_argument("--skip-scrape", action="store_true",
+                        help="Skip scraping; regenerate dashboards from existing data only")
+    args = parser.parse_args()
+
+    log = get_logger()
+    books = load_books()
+    output_dir = Path(args.output_dir).resolve()
+
+    if not args.skip_scrape:
+        for i, book in enumerate(books):
+            try:
+                scrape_book(book, log)
+            except Exception as e:
+                log.exception("scrape crash", extra={"extra_fields": {"slug": book["slug"]}})
+                print(f"[{book['slug']}] crash: {e}", file=sys.stderr)
+            if i < len(books) - 1:
+                time.sleep(INTER_BOOK_DELAY)
+
+    for book in books:
+        if generate_book_dashboard(book, output_dir):
+            print(f"[{book['slug']}] dashboard: {output_dir}/{book['slug']}/index.html")
+
+    generate_top_index(books, output_dir)
+    print(f"Top-level index: {output_dir}/index.html")
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
