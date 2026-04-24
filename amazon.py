@@ -145,27 +145,23 @@ def get_goodreads_data(url: str) -> dict | None:
 
 
 def get_amazon_review_count(soup):
+    # Amazon exposes the canonical count in two dedicated elements. The
+    # older approach (fuzzy regex against the whole `reviews-medley-widget`
+    # text) collapsed adjacent numbers like "4 out of 5" + "53 global ratings"
+    # into "4 out of 553 global ratings" and captured 553 instead of 53.
     try:
-        review_patterns = [
-            r'(\d{1,3}(?:,\d{3})*)\s*(?:customer\s*)?reviews?',
-            r'(\d{1,3}(?:,\d{3})*)\s*ratings?',
-            r'(\d{1,3}(?:,\d{3})*)\s*global\s*ratings?'
-        ]
+        el = soup.find(attrs={'data-hook': 'total-review-count'})
+        if el:
+            m = re.search(r'(\d{1,3}(?:,\d{3})*)', el.get_text())
+            if m:
+                return m.group(1).replace(',', '')
 
-        for pattern in review_patterns:
-            # Look in data-hook-tagged elements first (Amazon uses these)
-            for element in soup.find_all(attrs={'data-hook': True}):
-                if any(keyword in element.get('data-hook', '').lower()
-                       for keyword in ['reviews', 'rating', 'total']):
-                    match = re.search(pattern, element.get_text(), re.IGNORECASE)
-                    if match:
-                        return match.group(1).replace(',', '')
+        el = soup.find(id='acrCustomerReviewText')
+        if el:
+            m = re.search(r'(\d{1,3}(?:,\d{3})*)', el.get_text())
+            if m:
+                return m.group(1).replace(',', '')
 
-            # Fall back to full-page text
-            for match in re.findall(pattern, soup.get_text(), re.IGNORECASE):
-                num = int(match.replace(',', ''))
-                if 1 <= num <= 1000000:
-                    return str(num)
         return None
     except Exception as e:
         print(f"Error extracting Amazon review count: {e}", file=sys.stderr)
