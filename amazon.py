@@ -1,7 +1,6 @@
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
-import csv
 import re
 import os
 import json
@@ -91,18 +90,7 @@ def get_amazon_review_count(soup):
             r'(\d{1,3}(?:,\d{3})*)\s*ratings?',
             r'(\d{1,3}(?:,\d{3})*)\s*global\s*ratings?'
         ]
-        
-        # Check various elements where review count might appear
-        selectors = [
-            '[data-hook*="reviews"]',
-            '[data-hook*="rating"]',
-            '[id*="reviews"]',
-            '[class*="reviews"]',
-            'span:contains("reviews")',
-            'span:contains("ratings")',
-            'a[href*="reviews"]'
-        ]
-        
+
         for pattern in review_patterns:
             # Check in specific data attributes
             for element in soup.find_all(attrs={'data-hook': True}):
@@ -193,26 +181,18 @@ def get_all_rankings(soup):
         # Extract rankings from the container
         rank_text = rank_container.get_text()
         
-        # Parse different ranking formats with improved patterns
-        rank_patterns = [
-            # Pattern for "#4 in General Japan Travel Guides" or "#123,456 in Books (See Top 100)"
-            r'#([\d,]+)\s+in\s+([^#\n]+?)(?=\s*(?:#|\s*$))',
-        ]
-        
-        for pattern in rank_patterns:
-            matches = re.findall(pattern, rank_text, re.MULTILINE | re.IGNORECASE)
-            for rank_num, category in matches:
-                # Clean up category text
-                cleaned_category = category.strip()
-                # Remove trailing parenthetical info like "(See Top 100 in Books)"
-                cleaned_category = re.sub(r'\s*\([^)]*\)\s*$', '', cleaned_category)
-                cleaned_category = cleaned_category.strip()
-                
-                if cleaned_category and rank_num and len(cleaned_category) < 100:  # Sanity check
-                    rankings.append({
-                        'rank': rank_num.replace(',', ''),
-                        'category': cleaned_category
-                    })
+        # Matches "#4 in General Japan Travel Guides" or "#123,456 in Books (See Top 100)"
+        rank_pattern = r'#([\d,]+)\s+in\s+([^#\n]+?)(?=\s*(?:#|\s*$))'
+
+        for rank_num, category in re.findall(rank_pattern, rank_text, re.MULTILINE | re.IGNORECASE):
+            # Clean up category text; drop trailing "(See Top 100 in Books)"-style parenthetical
+            cleaned_category = re.sub(r'\s*\([^)]*\)\s*$', '', category.strip()).strip()
+
+            if cleaned_category and rank_num and len(cleaned_category) < 100:  # Sanity check
+                rankings.append({
+                    'rank': rank_num.replace(',', ''),
+                    'category': cleaned_category
+                })
         
         # Remove duplicates while preserving order
         seen_categories = set()
@@ -266,48 +246,6 @@ def save_book_data_json(data):
     # Save updated data
     with open(filename, 'w') as file:
         json.dump(history_data, file, indent=2)
-
-def save_book_data(data):
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    filename = "data/amazon_detailed_history.csv"
-    
-    # Ensure data directory exists
-    os.makedirs("data", exist_ok=True)
-    
-    # Skip saving if amazon_review_count is 0 or None
-    amazon_review_count = data.get('amazon_review_count')
-    if amazon_review_count is None or amazon_review_count == '0' or amazon_review_count == 0:
-        print(f"Skipping CSV data entry with invalid review count: {amazon_review_count}")
-        return
-    
-    # Check if file exists and is empty to write header
-    write_header = not os.path.exists(filename) or os.path.getsize(filename) == 0
-    
-    # Create detailed CSV with all rankings and review count
-    with open(filename, mode="a", newline="") as file:
-        writer = csv.writer(file)
-        
-        # Write header if file is new/empty
-        if write_header:
-            writer.writerow(["timestamp", "amazon_review_count", "goodreads_ratings_count", "goodreads_reviews_count", "category", "rank"])
-        
-        # Write review/rating counts and each ranking as separate rows
-        goodreads_ratings_count = data.get('goodreads_ratings_count', 'N/A')
-        goodreads_reviews_count = data.get('goodreads_reviews_count', 'N/A')
-        
-        if data.get('rankings'):
-            for ranking in data['rankings']:
-                writer.writerow([
-                    now,
-                    amazon_review_count,
-                    goodreads_ratings_count,
-                    goodreads_reviews_count,
-                    ranking['category'],
-                    ranking['rank']
-                ])
-        else:
-            # If no rankings found, still record review/rating counts
-            writer.writerow([now, amazon_review_count, goodreads_ratings_count, goodreads_reviews_count, 'N/A', 'N/A'])
 
 def generate_html_report(output_dir="."):
     """Generate HTML file with interactive charts showing ranking history"""
@@ -372,13 +310,9 @@ def main():
         else:
             print("No Amazon rankings found")
         
-        # Save data in multiple formats
         save_book_data_json(data)
         print(f"\nData saved to data/amazon_history.json")
-        
-        save_book_data(data)
-        print(f"Data saved to data/amazon_detailed_history.csv")
-        
+
         # Generate HTML dashboard in specified directory
         generate_html_report(args.output_dir)
     else:

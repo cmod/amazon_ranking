@@ -7,7 +7,6 @@ Track your Amazon book sales rankings and review metrics over time with interact
 - **Multi-Category Tracking**: Captures overall Books ranking plus all sub-category rankings
 - **Review Count Monitoring**: Tracks review growth over time
 - **Interactive Dashboard**: Individual charts for each category (colorblind-friendly)
-- **Multiple Data Formats**: JSON for dashboard, CSV for analysis
 - **Template-Based**: Easy to customize dashboard appearance
 
 ## Quick Start
@@ -44,8 +43,7 @@ amazon_ranking/
 ├── index.html                   # Generated interactive dashboard
 ├── requirements.txt             # Python dependencies
 ├── data/                        # Data storage directory
-│   ├── amazon_history.json     # JSON data for dashboard
-│   └── amazon_detailed_history.csv  # Detailed CSV format
+│   └── amazon_history.json     # JSON data for dashboard
 └── CLAUDE.md                   # Development documentation
 ```
 
@@ -98,7 +96,6 @@ crontab -e
 
 - **`data/amazon_history.json`**: Structured data for dashboard
 - **`index.html`**: Interactive dashboard with Chart.js visualizations
-- **`data/amazon_detailed_history.csv`**: CSV format for spreadsheet analysis
 
 ## Customization
 

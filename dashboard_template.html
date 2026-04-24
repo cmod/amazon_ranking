@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Amazon Book Ranking History</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -245,18 +245,21 @@
                 // Create container for this category chart
                 const chartContainer = document.createElement('div');
                 chartContainer.className = 'chart-container';
-                
+
                 const title = document.createElement('h2');
                 title.textContent = `${dataset.label} Ranking Over Time`;
                 chartContainer.appendChild(title);
-                
+
                 const canvas = document.createElement('canvas');
                 canvas.id = `chart-${index}`;
                 chartContainer.appendChild(canvas);
-                
+
                 chartsContainer.appendChild(chartContainer);
-                
-                // Create chart for this category
+
+                // Log scale for series whose range spans >2 orders of magnitude
+                // (Books overall rank: ~4K to ~140K). Linear reads better for tight sub-category ranges.
+                const isWideRange = dataset.label === 'Books';
+
                 new Chart(canvas, {
                     type: 'line',
                     data: {
@@ -277,16 +280,22 @@
                     options: {
                         responsive: true,
                         maintainAspectRatio: false,
+                        animation: false,
                         scales: {
                             y: {
+                                type: isWideRange ? 'logarithmic' : 'linear',
+                                reverse: true,
+                                min: 1,
                                 title: {
                                     display: true,
-                                    text: 'Ranking Position (lower is better)'
+                                    text: 'Ranking (higher on chart = better)'
                                 },
                                 grid: {
                                     color: '#e0e0e0'
                                 },
-                                grace: '10%'  // Add 10% padding to top and bottom
+                                ticks: {
+                                    format: { notation: 'compact' }
+                                }
                             },
                             x: {
                                 grid: {
@@ -344,6 +353,7 @@
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    animation: false,
                     scales: {
                         y: {
                             beginAtZero: true,
@@ -406,14 +416,15 @@
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    animation: false,
                     scales: {
                         y: {
-                            beginAtZero: false,
+                            beginAtZero: true,
                             title: {
                                 display: true,
                                 text: 'Count'
                             },
-                            grace: '10%'  // Add 10% padding to top and bottom
+                            grace: '10%'  // Add 10% padding above the max
                         }
                     },
                     plugins: {
