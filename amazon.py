@@ -318,18 +318,12 @@ def scrape_book(book: dict, log: logging.Logger) -> None:
         return
 
     arc = amazon_data.get("amazon_review_count")
+    # Absent review widget on a valid product page (rankings parsed) = 0 reviews,
+    # not a scrape failure. New releases have no review element at all.
     if arc is None:
-        envelope["last_attempt_status"] = "failed"
-        envelope["last_error"] = f"Invalid amazon_review_count: {arc!r}"
-        write_atomic(data_path, envelope)
-        log.info("scrape", extra={"extra_fields": {
-            "slug": slug, "status": "failed", "reason": "invalid-review-count",
-        }})
-        print(f"[{slug}] failed: invalid review count ({arc!r})")
-        return
-    # 0 reviews is valid (new releases); normalize int 0 to "0" so the rest of
-    # the pipeline stays string-typed for signature/serialization consistency.
-    if arc == 0:
+        arc = "0"
+    elif arc == 0:
+        # Normalize int 0 to "0" so signature/serialization stays string-typed.
         arc = "0"
 
     new_entry = {
