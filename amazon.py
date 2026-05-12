@@ -318,7 +318,7 @@ def scrape_book(book: dict, log: logging.Logger) -> None:
         return
 
     arc = amazon_data.get("amazon_review_count")
-    if arc is None or arc in ("0", 0):
+    if arc is None:
         envelope["last_attempt_status"] = "failed"
         envelope["last_error"] = f"Invalid amazon_review_count: {arc!r}"
         write_atomic(data_path, envelope)
@@ -327,6 +327,10 @@ def scrape_book(book: dict, log: logging.Logger) -> None:
         }})
         print(f"[{slug}] failed: invalid review count ({arc!r})")
         return
+    # 0 reviews is valid (new releases); normalize int 0 to "0" so the rest of
+    # the pipeline stays string-typed for signature/serialization consistency.
+    if arc == 0:
+        arc = "0"
 
     new_entry = {
         "timestamp": now,
