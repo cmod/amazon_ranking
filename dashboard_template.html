@@ -245,10 +245,11 @@
         // Process data for charts
         function processData() {
             const rawEntries = historyData.entries || [];
-            // Filter out entries with invalid amazon_review_count (0, null, undefined, or empty string)
+            // Drop only entries with truly missing review counts. 0 is a valid
+            // value for newly-released books and must not be filtered out.
             const entries = rawEntries.filter(entry => {
                 const reviewCount = entry.amazon_review_count;
-                return reviewCount && reviewCount !== '0' && reviewCount !== 0 && reviewCount !== '';
+                return reviewCount !== null && reviewCount !== undefined && reviewCount !== '';
             });
             const { aggregatedEntries, aggregatedTimestamps } = aggregateDataByDay(entries);
             
