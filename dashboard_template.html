@@ -199,46 +199,37 @@
             });
         }
 
-        // Function to aggregate data by day with sampling when needed
+        // Collapse each day to a single entry: the one with the highest
+        // amazon_review_count (review counts only grow, so this is effectively
+        // the latest meaningful snapshot of the day). Ties break on timestamp.
         function aggregateDataByDay(entries) {
             const dailyGroups = {};
-            
-            // Group entries by date
+
             entries.forEach((entry, index) => {
                 const date = new Date(entry.timestamp);
                 const dateKey = date.toDateString();
-                
-                if (!dailyGroups[dateKey]) {
-                    dailyGroups[dateKey] = [];
-                }
-                dailyGroups[dateKey].push({...entry, originalIndex: index});
+                (dailyGroups[dateKey] ||= []).push({...entry, originalIndex: index});
             });
-            
+
             const aggregatedEntries = [];
             const aggregatedTimestamps = [];
-            
-            // Process each day
-            Object.keys(dailyGroups).sort((a, b) => new Date(a) - new Date(b)).forEach(dateKey => {
-                const dayEntries = dailyGroups[dateKey];
-                
-                if (dayEntries.length <= 10) {
-                    // If 10 or fewer entries, keep all
-                    dayEntries.forEach(entry => {
-                        aggregatedEntries.push(entry);
-                        aggregatedTimestamps.push(new Date(entry.timestamp));
+
+            Object.keys(dailyGroups)
+                .sort((a, b) => new Date(a) - new Date(b))
+                .forEach(dateKey => {
+                    const dayEntries = dailyGroups[dateKey];
+                    const best = dayEntries.reduce((winner, e) => {
+                        const wCount = parseInt(winner.amazon_review_count) || 0;
+                        const eCount = parseInt(e.amazon_review_count) || 0;
+                        if (eCount > wCount) return e;
+                        if (eCount < wCount) return winner;
+                        // Tie: prefer the later entry of the day.
+                        return new Date(e.timestamp) > new Date(winner.timestamp) ? e : winner;
                     });
-                } else {
-                    // If more than 10 entries, sample 5 evenly distributed points
-                    const sampleSize = 5;
-                    for (let i = 0; i < sampleSize; i++) {
-                        const index = Math.floor((i * (dayEntries.length - 1)) / (sampleSize - 1));
-                        const entry = dayEntries[index];
-                        aggregatedEntries.push(entry);
-                        aggregatedTimestamps.push(new Date(entry.timestamp));
-                    }
-                }
-            });
-            
+                    aggregatedEntries.push(best);
+                    aggregatedTimestamps.push(new Date(best.timestamp));
+                });
+
             return { aggregatedEntries, aggregatedTimestamps };
         }
 
@@ -257,22 +248,9 @@
             const goodreadsRatingsCounts = aggregatedEntries.map(e => parseInt(e.goodreads_ratings_count) || 0);
             const goodreadsReviewsCounts = aggregatedEntries.map(e => parseInt(e.goodreads_reviews_count) || 0);
             
-            // Create full datetime objects for tooltips
+            // One entry per day, so every label gets a date.
             const fullTimestamps = aggregatedTimestamps;
-            
-            // Create labels that only show date on first occurrence of each day
-            const timestamps = [];
-            let lastDate = null;
-            
-            fullTimestamps.forEach(date => {
-                const currentDate = date.toLocaleDateString();
-                if (currentDate !== lastDate) {
-                    timestamps.push(currentDate);
-                    lastDate = currentDate;
-                } else {
-                    timestamps.push(''); // Empty string for subsequent entries on same day
-                }
-            });
+            const timestamps = fullTimestamps.map(d => d.toLocaleDateString());
             
             // Get all unique categories
             const categories = new Set();
