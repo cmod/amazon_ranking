@@ -245,8 +245,12 @@
             const { aggregatedEntries, aggregatedTimestamps } = aggregateDataByDay(entries);
             
             const amazonReviewCounts = aggregatedEntries.map(e => parseInt(e.amazon_review_count) || 0);
-            const goodreadsRatingsCounts = aggregatedEntries.map(e => parseInt(e.goodreads_ratings_count) || 0);
-            const goodreadsReviewsCounts = aggregatedEntries.map(e => parseInt(e.goodreads_reviews_count) || 0);
+            // Missing Goodreads values (failed fetch that run) become null —
+            // Chart.js renders them as gaps; 0 would draw a false dip.
+            const goodreadsRatingsCounts = aggregatedEntries.map(e =>
+                e.goodreads_ratings_count != null ? parseInt(e.goodreads_ratings_count) : null);
+            const goodreadsReviewsCounts = aggregatedEntries.map(e =>
+                e.goodreads_reviews_count != null ? parseInt(e.goodreads_reviews_count) : null);
             
             // One entry per day, so every label gets a date.
             const fullTimestamps = aggregatedTimestamps;
@@ -533,11 +537,14 @@
             // Combined all-sub-categories chart (excludes Books due to range)
             createCombinedChart(timestamps, rankingDatasets, fullTimestamps);
 
-            // Filter data to only include entries with Goodreads data
-            const goodreadsDataStartIndex = entries.findIndex(entry => 
+            // Trim leading entries from before Goodreads data existed.
+            // findIndex returns -1 when no entry has Goodreads data; slicing
+            // by -1 would wrongly keep the last point, so chart nothing instead.
+            let goodreadsDataStartIndex = aggregatedEntries.findIndex(entry =>
                 entry.goodreads_ratings_count && parseInt(entry.goodreads_ratings_count) > 0
             );
-            
+            if (goodreadsDataStartIndex === -1) goodreadsDataStartIndex = aggregatedEntries.length;
+
             const filteredTimestamps = timestamps.slice(goodreadsDataStartIndex);
             const filteredGoodreadsRatings = goodreadsRatingsCounts.slice(goodreadsDataStartIndex);
             const filteredGoodreadsReviews = goodreadsReviewsCounts.slice(goodreadsDataStartIndex);
@@ -553,14 +560,16 @@
                         borderColor: '#FF6B35',
                         backgroundColor: 'rgba(255, 107, 53, 0.1)',
                         fill: true,
-                        tension: 0.1
+                        tension: 0.1,
+                        spanGaps: true
                     }, {
                         label: 'Goodreads Reviews',
                         data: filteredGoodreadsReviews,
                         borderColor: '#8B5A3C',
                         backgroundColor: 'rgba(139, 90, 60, 0.1)',
                         fill: true,
-                        tension: 0.1
+                        tension: 0.1,
+                        spanGaps: true
                     }]
                 },
                 options: {
@@ -621,21 +630,25 @@
                 `;
             }
 
-            // Latest Goodreads ratings count
-            if (latest.goodreads_ratings_count) {
+            // Latest entry may lack Goodreads data (failed fetch that run) —
+            // fall back to the most recent entry that has it.
+            const latestWithGoodreads = [...entries].reverse().find(e =>
+                e.goodreads_ratings_count != null || e.goodreads_reviews_count != null
+            );
+
+            if (latestWithGoodreads && latestWithGoodreads.goodreads_ratings_count != null) {
                 goodreadsStatsHTML += `
                     <div class="stat-card">
-                        <div class="stat-value">${latest.goodreads_ratings_count}</div>
+                        <div class="stat-value">${latestWithGoodreads.goodreads_ratings_count}</div>
                         <div class="stat-label">Goodreads Ratings</div>
                     </div>
                 `;
             }
 
-            // Latest Goodreads reviews count
-            if (latest.goodreads_reviews_count) {
+            if (latestWithGoodreads && latestWithGoodreads.goodreads_reviews_count != null) {
                 goodreadsStatsHTML += `
                     <div class="stat-card">
-                        <div class="stat-value">${latest.goodreads_reviews_count}</div>
+                        <div class="stat-value">${latestWithGoodreads.goodreads_reviews_count}</div>
                         <div class="stat-label">Goodreads Reviews</div>
                     </div>
                 `;

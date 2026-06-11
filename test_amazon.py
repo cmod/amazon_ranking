@@ -95,6 +95,51 @@ class TestEntrySignature(unittest.TestCase):
                             amazon.entry_signature(e, True))
 
 
+class TestGoodreadsFlapping(unittest.TestCase):
+    """Regression for the 2026-06-10 Goodreads WAF bug: Goodreads started
+    serving an AWS WAF challenge (HTTP 202) to plain requests clients. A
+    failed Goodreads fetch must not register as a data change, or the
+    history fills with entries that alternately have and lack GR fields."""
+
+    def _scrape_sequence(self, gr_runs):
+        import json
+        import logging
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        az = {"amazon_review_count": "100",
+              "rankings": [{"rank": "5", "category": "Books"}]}
+        book = {"slug": "sim", "display_name": "Sim",
+                "amazon_url": "x", "goodreads_url": "y"}
+        log = logging.getLogger("null")
+        log.addHandler(logging.NullHandler())
+
+        statuses = []
+        with tempfile.TemporaryDirectory() as td:
+            with patch.object(amazon, "DATA_DIR", Path(td)):
+                for gr in gr_runs:
+                    with patch.object(amazon, "get_amazon_data", return_value=dict(az)), \
+                         patch.object(amazon, "get_goodreads_data", return_value=gr):
+                        amazon.scrape_book(book, log)
+                    env = json.loads((Path(td) / "sim.json").read_text())
+                    statuses.append(env["last_attempt_status"])
+        return statuses, env
+
+    def test_failed_gr_fetch_is_not_a_change(self):
+        gr = {"goodreads_ratings_count": "47", "goodreads_reviews_count": "21"}
+        statuses, env = self._scrape_sequence([gr, None, gr])
+        self.assertEqual(statuses, ["appended", "no-change", "no-change"])
+        self.assertEqual(len(env["entries"]), 1)
+
+    def test_real_gr_change_still_appends(self):
+        gr1 = {"goodreads_ratings_count": "47", "goodreads_reviews_count": "21"}
+        gr2 = {"goodreads_ratings_count": "50", "goodreads_reviews_count": "22"}
+        statuses, env = self._scrape_sequence([gr1, None, gr2])
+        self.assertEqual(statuses, ["appended", "no-change", "appended"])
+        self.assertEqual(len(env["entries"]), 2)
+
+
 class TestLoadBooksValidation(unittest.TestCase):
     """Validation is important because books.json is user-edited; a typo
     should fail loudly, not silently create an orphaned dashboard."""

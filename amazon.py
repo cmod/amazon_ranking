@@ -43,7 +43,9 @@ HEADERS = {
         "image/avif,image/webp,image/apng,*/*;q=0.8"
     ),
     "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
+    # No Accept-Encoding override: requests advertises only encodings it can
+    # actually decode (br requires the brotli package; claiming it without
+    # the decoder yields undecodable garbage that parses as an empty page).
     "Sec-Fetch-Dest": "document",
     "Sec-Fetch-Mode": "navigate",
     "Sec-Fetch-Site": "none",
@@ -111,12 +113,16 @@ def fetch_with_retry(url: str):
             r = requests.get(url, headers=HEADERS, timeout=30)
             if r.status_code == 404:
                 return None  # permanent
-            r.raise_for_status()
-            return r
+            # Only a real 200 counts. Goodreads serves its AWS WAF bot
+            # challenge as HTTP 202 — raise_for_status() lets that through
+            # and the challenge page then parses as "no data".
+            if r.status_code == 200:
+                return r
         except requests.RequestException:
-            if i == FETCH_ATTEMPTS - 1:
-                return None
-            time.sleep(FETCH_BACKOFF * (2 ** i))
+            pass
+        if i == FETCH_ATTEMPTS - 1:
+            return None
+        time.sleep(FETCH_BACKOFF * (2 ** i))
     return None
 
 
@@ -332,6 +338,7 @@ def scrape_book(book: dict, log: logging.Logger) -> None:
         "rankings": amazon_data.get("rankings"),
     }
 
+    gr_fetched = False
     if has_goodreads:
         gr_data = get_goodreads_data(book["goodreads_url"])
         if gr_data:
@@ -342,12 +349,18 @@ def scrape_book(book: dict, log: logging.Logger) -> None:
                 new_entry["goodreads_ratings_count"] = ratings
             if reviews is not None:
                 new_entry["goodreads_reviews_count"] = reviews
+            gr_fetched = ratings is not None or reviews is not None
         # Goodreads fetch failure is not a scrape-level failure — omit and move on.
 
     entries = envelope["entries"]
-    new_sig = entry_signature(new_entry, has_goodreads)
+    # When Goodreads was configured but this run couldn't fetch it (bot
+    # challenge, outage), compare on Amazon data alone: "unknown" is not a
+    # change, and treating it as one fills the history with flip-flop
+    # entries that alternately have and lack Goodreads fields.
+    compare_gr = has_goodreads and gr_fetched
+    new_sig = entry_signature(new_entry, compare_gr)
     wrote_entry = False
-    if not entries or entry_signature(entries[-1], has_goodreads) != new_sig:
+    if not entries or entry_signature(entries[-1], compare_gr) != new_sig:
         entries.append(new_entry)
         wrote_entry = True
 
@@ -358,14 +371,15 @@ def scrape_book(book: dict, log: logging.Logger) -> None:
 
     write_atomic(data_path, envelope)
 
+    gr_status = "n/a"
+    if has_goodreads:
+        gr_status = "yes" if gr_fetched else "FAILED"
+
     log.info("scrape", extra={"extra_fields": {
         "slug": slug, "status": "success", "wrote_entry": wrote_entry,
         "reason": "appended" if wrote_entry else "no-change",
+        "goodreads": gr_status,
     }})
-
-    gr_status = "no"
-    if has_goodreads and "goodreads_ratings_count" in new_entry:
-        gr_status = "yes"
     print(f"[{slug}] {'appended' if wrote_entry else 'no-change'}: "
           f"reviews={arc} rankings={len(new_entry['rankings'])} goodreads={gr_status}")
 
