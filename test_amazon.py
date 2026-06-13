@@ -8,6 +8,7 @@ Run:
 """
 from __future__ import annotations
 
+import os
 import unittest
 
 from bs4 import BeautifulSoup
@@ -138,6 +139,140 @@ class TestGoodreadsFlapping(unittest.TestCase):
         statuses, env = self._scrape_sequence([gr1, None, gr2])
         self.assertEqual(statuses, ["appended", "no-change", "appended"])
         self.assertEqual(len(env["entries"]), 2)
+
+
+class TestDashboardSmoke(unittest.TestCase):
+    """Headless-render the dashboard template with synthetic data to catch
+    JavaScript errors the Python tests cannot see.
+
+    Regression for 2026-06-13: a wrong variable name in createCharts()
+    (aggregatedEntries vs the in-scope entries) threw a ReferenceError that
+    blanked every book page — every stat card and chart vanished — while all
+    Python tests stayed green. This test executes the template's real JS and
+    fails if the page throws or the metric sections render empty.
+
+    Chart.js is stubbed so the test needs no network. Skips automatically
+    when no Chrome/Chromium binary is present (e.g. minimal CI images)."""
+
+    _MAC_CANDIDATES = [
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    ]
+
+    def _find_chrome(self):
+        import shutil
+        for name in ("google-chrome", "google-chrome-stable", "chromium",
+                     "chromium-browser", "chrome"):
+            found = shutil.which(name)
+            if found:
+                return found
+        for path in self._MAC_CANDIDATES:
+            if os.path.exists(path):
+                return path
+        return None
+
+    def _synthetic_envelope(self):
+        # 3 days of data. Goodreads present days 1-2, absent on day 3 (the
+        # AWS-WAF scenario) so the render must exercise the GR fallback and
+        # null handling. Two ranking categories, multiple entries per day to
+        # exercise the daily aggregation.
+        def entry(ts, reviews, books_rank, photo_rank, gr_ratings=None, gr_reviews=None):
+            e = {
+                "timestamp": ts,
+                "amazon_review_count": str(reviews),
+                "rankings": [
+                    {"rank": str(books_rank), "category": "Books"},
+                    {"rank": str(photo_rank), "category": "Photo Essays"},
+                ],
+            }
+            if gr_ratings is not None:
+                e["goodreads_ratings_count"] = str(gr_ratings)
+            if gr_reviews is not None:
+                e["goodreads_reviews_count"] = str(gr_reviews)
+            return e
+
+        return {
+            "slug": "smoke",
+            "display_name": "Smoke Test Book",
+            "last_successful_scrape": "2026-06-10 03:00:00",
+            "last_error": None,
+            "last_attempt_timestamp": "2026-06-10 03:00:00",
+            "last_attempt_status": "no-change",
+            "entries": [
+                entry("2026-06-08 03:00:00", 100, 5000, 20, gr_ratings=40, gr_reviews=18),
+                entry("2026-06-08 15:00:00", 101, 4800, 19, gr_ratings=41, gr_reviews=18),
+                entry("2026-06-09 03:00:00", 103, 4600, 17, gr_ratings=43, gr_reviews=19),
+                entry("2026-06-10 03:00:00", 105, 4400, 15),  # WAF: no Goodreads
+            ],
+        }
+
+    @staticmethod
+    def _container(dom, marker):
+        # Return the slice of DOM from a container's id= attribute up to the
+        # next id= attribute, so assertions don't bleed into sibling sections.
+        i = dom.find(f'id="{marker}"')
+        if i == -1:
+            return None
+        nxt = dom.find('id="', i + 1)
+        return dom[i:nxt] if nxt != -1 else dom[i:i + 1000]
+
+    def test_dashboard_renders_without_js_errors(self):
+        chrome = self._find_chrome()
+        if not chrome:
+            self.skipTest("no Chrome/Chromium binary found")
+
+        import json
+        import re
+        import subprocess
+        import tempfile
+        from pathlib import Path
+
+        template = Path(amazon.TEMPLATE_FILE).read_text()
+        # Replace the Chart.js CDN script with a no-op stub: the page only ever
+        # calls `new Chart(...)`, so this keeps the test offline and fast while
+        # still executing every line of the page's own JavaScript.
+        template = re.sub(
+            r'<script src="https://cdn\.jsdelivr\.net/npm/chart\.js[^"]*"></script>',
+            "<script>window.Chart=function(){return{destroy:function(){},"
+            "update:function(){}};};</script>",
+            template,
+        )
+        self.assertIn("window.Chart=function", template,
+                      "Chart.js CDN stub substitution failed — check the script tag")
+        html = template.replace("{{DATA_PLACEHOLDER}}",
+                                json.dumps(self._synthetic_envelope()))
+
+        with tempfile.TemporaryDirectory() as td:
+            page = Path(td) / "index.html"
+            page.write_text(html)
+            proc = subprocess.run(
+                [chrome, "--headless", "--disable-gpu", "--no-sandbox",
+                 "--disable-dev-shm-usage", "--dump-dom",
+                 "--enable-logging=stderr", "--v=0",
+                 "--virtual-time-budget=8000", page.as_uri()],
+                capture_output=True, text=True, timeout=60,
+            )
+        dom, logs = proc.stdout, proc.stderr
+
+        self.assertNotIn("Uncaught", logs,
+                         msg=f"JavaScript error during render:\n{logs}")
+
+        # Each metric section is populated by JS after load; empty means the
+        # render threw before reaching it.
+        for marker, label in (("amazonStats", "Amazon reviews"),
+                              ("goodreadsStats", "Goodreads"),
+                              ("rankingStats", "current rankings"),
+                              ("bestRankingStats", "best rankings")):
+            container = self._container(dom, marker)
+            self.assertIsNotNone(container, f"{marker} container missing from DOM")
+            self.assertIn("stat-value", container,
+                          f"{label} stats did not populate (createCharts likely threw)")
+
+        # Latest entry lacks Goodreads, so the GR stats must fall back to the
+        # last good fetch (ratings 43 / reviews 19), not vanish or show 0.
+        gr = self._container(dom, "goodreadsStats")
+        self.assertIn("43", gr, "Goodreads ratings fallback not applied")
+        self.assertIn("19", gr, "Goodreads reviews fallback not applied")
 
 
 class TestLoadBooksValidation(unittest.TestCase):
